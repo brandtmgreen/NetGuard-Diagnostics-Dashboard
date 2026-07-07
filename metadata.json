@@ -1,0 +1,8 @@
+{
+  "name": "NetGuard Diagnostics Dashboard",
+  "description": "A Windows-inspired task management, network diagnostics, and security monitoring dashboard with an interactive terminal and real-time system alerts for connected devices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

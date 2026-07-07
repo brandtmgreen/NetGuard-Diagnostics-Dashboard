@@ -1,0 +1,19 @@
+version: '3.8'
+
+# NetGuard Diagnostics Dashboard Orchestration
+# Designed for instant, zero-configuration local deployments and standard client deliveries.
+
+services:
+  netguard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netguard-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - APP_URL=http://localhost:3000
+    # Optional persistent configurations or logs can be volume-mounted here
