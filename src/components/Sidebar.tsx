@@ -9,7 +9,8 @@ import {
   Activity, 
   Bell,
   ClipboardCheck,
-  Eye
+  Eye,
+  Wrench
 } from "lucide-react";
 
 interface SidebarProps {
@@ -40,7 +41,8 @@ export default function Sidebar({ activeTab, setActiveTab, alertCount, threatCou
     { id: "nmap", label: "NMAP Port Scanner", icon: Network },
     { id: "wireshark", label: "Wireshark Console", icon: Eye },
     { id: "security", label: "Security Center", icon: ShieldAlert, badge: threatCount, badgeColor: "bg-[#f7768e] text-slate-950 font-bold" },
-    { id: "terminal", label: "Interactive Terminal", icon: Terminal }
+    { id: "terminal", label: "Interactive Terminal", icon: Terminal },
+    { id: "wizard", label: "Deployment Wizard", icon: Wrench }
   ];
 
   return (

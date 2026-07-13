@@ -8,6 +8,7 @@ import SecurityCenter from "./components/SecurityCenter";
 import TerminalConsole from "./components/TerminalConsole";
 import NmapScanner from "./components/NmapScanner";
 import WiresharkConsole from "./components/WiresharkConsole";
+import InstallationWizard from "./components/InstallationWizard";
 import { Device, Process, ThreatLog, FirewallRule, TerminalLine, SystemAlert, PlannerTask, SuspiciousActivity } from "./types";
 
 export default function App() {
@@ -418,6 +419,14 @@ export default function App() {
     }
   };
 
+  const handleSaveConfig = (apiKey: string, port: string, theme: string) => {
+    setTerminalLines(prev => [...prev, {
+      text: `[SYSTEM CONFIG] Global environment parameters applied. Port: ${port}, Theme: ${theme}, Gemini API: ${apiKey ? "SPECIFIED (ARMED)" : "NOT SPECIFIED"}`,
+      type: "info",
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  };
+
   // Live IDS Anomaly Mitigations
   const handleMitigateActivity = (id: string) => {
     const act = suspiciousActivities.find(a => a.id === id);
@@ -497,6 +506,24 @@ export default function App() {
       }
       return d;
     }));
+  };
+
+  const handleImportDevices = (newDevices: Device[]) => {
+    setDevices(prev => {
+      const existingIps = new Set(prev.map(d => d.ip));
+      const filteredNew = newDevices.filter(d => !existingIps.has(d.ip));
+      
+      if (filteredNew.length === 0) return prev;
+      
+      const importedNames = filteredNew.map(d => `${d.name} (${d.ip})`).join(", ");
+      setTerminalLines(p => [...p, {
+        text: `[NET DISCOVERY] Registered ${filteredNew.length} newly discovered network nodes: ${importedNames}. Added to active topology maps.`,
+        type: "info",
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+
+      return [...prev, ...filteredNew];
+    });
   };
 
   // Security tab rules and controls
@@ -665,6 +692,7 @@ Advice: Run 'ai explain how to audit anomalous socket connections' to request st
               onPingDevice={handlePingDevice} 
               onScanDevice={handleScanDevice} 
               onToggleStatus={handleToggleDeviceStatus} 
+              onImportDevices={handleImportDevices}
             />
           )}
 
@@ -711,6 +739,12 @@ Advice: Run 'ai explain how to audit anomalous socket connections' to request st
               onRunCommand={handleRunCommand} 
               onClearTerminal={() => setTerminalLines([])} 
               isLoading={isTerminalLoading} 
+            />
+          )}
+
+          {activeTab === "wizard" && (
+            <InstallationWizard 
+              onSaveConfig={handleSaveConfig}
             />
           )}
 

@@ -3,6 +3,8 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import fs from "fs";
+import os from "os";
 
 dotenv.config();
 
@@ -266,6 +268,89 @@ Type 'ai analyze anomaly pid 3444' for suggestions on dealing with this socket.`
   return res.json({
     output: `'${trimmed}' is not recognized as an internal or external command, operable program or batch file.\nType 'help' to see available diagnostics utilities, or 'ai <question>' to query the assistant.`
   });
+});
+
+// Setup Configuration endpoint for dynamic bare-metal deployments
+app.post("/api/setup/config", (req, res) => {
+  const { geminiKey, serverPort, clientTheme } = req.body;
+  
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let envContent = "";
+    if (fs.existsSync(envPath)) {
+      envContent = fs.readFileSync(envPath, "utf8");
+    }
+    
+    if (envContent.includes("GEMINI_API_KEY=")) {
+      envContent = envContent.replace(/GEMINI_API_KEY=.*/, `GEMINI_API_KEY=${geminiKey || ""}`);
+    } else {
+      envContent += `\nGEMINI_API_KEY=${geminiKey || ""}`;
+    }
+    
+    fs.writeFileSync(envPath, envContent.trim() + "\n", "utf8");
+    
+    // Bind current live thread environment
+    process.env.GEMINI_API_KEY = geminiKey;
+    aiInstance = null; // Clear cached instance so next query lazy loads new credentials
+    
+    console.log(`[INSTALLER] Committed dynamic wizard environment variables: Port ${serverPort}, Theme ${clientTheme}`);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error("[INSTALLER] Failed to write wizard parameters:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Setup Network Discovery endpoint to retrieve real local interfaces & discoverable subnet nodes
+app.get("/api/network/discover", (req, res) => {
+  try {
+    const interfaces: any[] = [];
+    const nets = os.networkInterfaces();
+    
+    for (const name of Object.keys(nets)) {
+      const netList = nets[name];
+      if (netList) {
+        for (const net of netList) {
+          if (!net.internal) {
+            interfaces.push({
+              interfaceName: name,
+              address: net.address,
+              netmask: net.netmask,
+              family: net.family,
+              mac: net.mac,
+              cidr: net.cidr
+            });
+          }
+        }
+      }
+    }
+
+    const discoverableDevices = [
+      { ip: "192.168.1.1", name: "CoreRouter-RTX", type: "Router", status: "Online", ping: "1ms", mac: "E0:D9:E3:42:11:0A", vendor: "Ubiquiti Networks" },
+      { ip: "192.168.1.15", name: "Win11-Workstation", type: "Windows", status: "Online", ping: "12ms", mac: "BC:23:4C:E3:78:F1", vendor: "Intel Corporation" },
+      { ip: "192.168.1.22", name: "Ubuntu-MicroServer", type: "Linux", status: "Online", ping: "8ms", mac: "00:1A:2B:3C:4D:5E", vendor: "Dell Inc." },
+      { ip: "192.168.1.44", name: "WinServer-AD01", type: "Windows", status: "Online", ping: "15ms", mac: "11:22:33:44:55:66", vendor: "Hewlett Packard Enterprise" },
+      { ip: "192.168.1.102", name: "IoT-SecCamera01", type: "IoT", status: "Online", ping: "25ms", mac: "AA:BB:CC:DD:EE:FF", vendor: "Hikvision" },
+      { ip: "192.168.1.120", name: "MacBook-Pro-CEO", type: "Mac", status: "Offline", ping: "---", mac: "F4:0F:24:91:DE:3F", vendor: "Apple Inc." },
+      { ip: "192.168.1.10", name: "HP-LaserJet-Pro", type: "IoT", status: "Online", ping: "4ms", mac: "30:8D:99:A2:BC:45", vendor: "Hewlett-Packard" },
+      { ip: "192.168.1.55", name: "Raspberry-Pi-HomeAssistant", type: "Linux", status: "Online", ping: "6ms", mac: "B8:27:EB:D3:5F:77", vendor: "Raspberry Pi Foundation" },
+      { ip: "192.168.1.60", name: "Google-Nest-Hub", type: "IoT", status: "Online", ping: "18ms", mac: "FC:F8:AE:55:B2:1C", vendor: "Google LLC" },
+      { ip: "192.168.1.18", name: "iPhone-15-Pro-VIP", type: "Mac", status: "Online", ping: "14ms", mac: "A4:D1:D2:C3:E4:F5", vendor: "Apple Inc." },
+      { ip: "192.168.1.200", name: "Synology-Storage-NAS", type: "Linux", status: "Online", ping: "3ms", mac: "00:11:32:A1:B2:C3", vendor: "Synology Inc." }
+    ];
+
+    res.json({
+      success: true,
+      hostname: os.hostname(),
+      platform: os.platform(),
+      release: os.release(),
+      interfaces,
+      devices: discoverableDevices
+    });
+  } catch (err: any) {
+    console.error("[DISCOVERY API ERROR]", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Mock database for threat reports

@@ -13,7 +13,12 @@ import {
   Server,
   Laptop,
   Terminal,
-  Network
+  Network,
+  Smartphone,
+  Play,
+  CheckCircle2,
+  ListFilter,
+  AlertCircle
 } from "lucide-react";
 import { Device } from "../types";
 
@@ -22,19 +27,174 @@ interface NetworkDiagnosticsProps {
   onPingDevice: (ip: string) => void;
   onScanDevice: (ip: string) => void;
   onToggleStatus: (ip: string) => void;
+  onImportDevices?: (newDevices: Device[]) => void;
 }
 
 export default function NetworkDiagnostics({
   devices,
   onPingDevice,
   onScanDevice,
-  onToggleStatus
+  onToggleStatus,
+  onImportDevices
 }: NetworkDiagnosticsProps) {
   const [filter, setFilter] = useState("");
   const [selectedIp, setSelectedIp] = useState<string | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<Record<string, { cpu: number, mem: number }>>({});
-  const [viewMode, setViewMode] = useState<"map" | "list">("map");
+  const [viewMode, setViewMode] = useState<"map" | "list" | "discovery">("map");
   const [hoveredIp, setHoveredIp] = useState<string | null>(null);
+
+  // Discovery Scanner States
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [targetSubnet, setTargetSubnet] = useState("192.168.1.0/24");
+  const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([]);
+  const [scanLogs, setScanLogs] = useState<string[]>([]);
+  const [serverNetInfo, setServerNetInfo] = useState<any>(null);
+  const [selectedDiscoveredIp, setSelectedDiscoveredIp] = useState<string | null>(null);
+  const [autoDiscoverEnabled, setAutoDiscoverEnabled] = useState(true);
+
+  // Real-time fluctuating pings & dynamic bandwidth updates for scanned subnet clients
+  useEffect(() => {
+    if (discoveredDevices.length === 0) return;
+
+    const interval = setInterval(() => {
+      setDiscoveredDevices(prev => 
+        prev.map(d => {
+          if (d.status === "Offline") return d;
+          
+          let currentPing = parseInt(d.ping) || 5;
+          currentPing = Math.max(1, Math.min(150, currentPing + (Math.floor(Math.random() * 5) - 2)));
+          
+          const tx = parseFloat((Math.random() * 250 + 2).toFixed(1));
+          const rx = parseFloat((Math.random() * 1200 + 10).toFixed(1));
+
+          return {
+            ...d,
+            ping: `${currentPing}ms`,
+            bandwidth: { tx, rx }
+          };
+        })
+      );
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [discoveredDevices.length]);
+
+  const handleStartDiscovery = async () => {
+    setIsDiscovering(true);
+    setScanProgress(0);
+    setDiscoveredDevices([]);
+    setScanLogs([`[${new Date().toLocaleTimeString()}] [SYSTEM] Initializing NetGuard network discovery engine...`]);
+    setSelectedDiscoveredIp(null);
+
+    try {
+      const res = await fetch("/api/network/discover");
+      const data = await res.json();
+      
+      if (data.success) {
+        setServerNetInfo({
+          hostname: data.hostname,
+          platform: data.platform,
+          release: data.release,
+          interfaces: data.interfaces
+        });
+
+        const pool = data.devices || [];
+        
+        let currentProgress = 0;
+        const totalDuration = 4000; // 4 seconds sweep
+        const intervalTime = 100;
+        const totalTicks = totalDuration / intervalTime;
+        const tickIncrement = 100 / totalTicks;
+
+        const timer = setInterval(() => {
+          currentProgress += tickIncrement;
+          const roundedProgress = Math.min(100, Math.floor(currentProgress));
+          setScanProgress(roundedProgress);
+
+          if (roundedProgress % 15 === 0 && roundedProgress < 95) {
+            const tempIp = `192.168.1.${Math.floor(Math.random() * 254) + 1}`;
+            setScanLogs(prev => [
+              ...prev,
+              `[${new Date().toLocaleTimeString()}] [PING] Probing remote segment IP: ${tempIp}... Timeout (No reply)`,
+            ]);
+          }
+
+          const targetCount = Math.floor((roundedProgress / 100) * pool.length);
+          if (targetCount > 0) {
+            setDiscoveredDevices(prev => {
+              const currentCount = prev.length;
+              if (currentCount < targetCount) {
+                const newDevicesToAdd = pool.slice(currentCount, targetCount);
+                
+                newDevicesToAdd.forEach((item: any) => {
+                  setScanLogs(l => [
+                    ...l,
+                    `[${new Date().toLocaleTimeString()}] [DISCOVERED] Host '${item.name}' found at ${item.ip} [MAC: ${item.mac}] (${item.vendor})`
+                  ]);
+                });
+
+                return [...prev, ...newDevicesToAdd];
+              }
+              return prev;
+            });
+          }
+
+          if (roundedProgress >= 100) {
+            clearInterval(timer);
+            setIsDiscovering(false);
+            setScanLogs(prev => [
+              ...prev,
+              `[${new Date().toLocaleTimeString()}] [SUCCESS] Subnet scanning finalized. Identified ${pool.length} active hosts.`,
+              `[${new Date().toLocaleTimeString()}] [SYSTEM] Core interface bound to ${data.interfaces[0]?.address || '127.0.0.1'} [MAC: ${data.interfaces[0]?.mac || 'unknown'}]`
+            ]);
+          }
+        }, intervalTime);
+
+      } else {
+        throw new Error(data.error || "Unknown API Error");
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      setIsDiscovering(false);
+      setScanLogs(prev => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] [ERROR] Scan sweep aborted: ${err.message || err}`
+      ]);
+    }
+  };
+
+  const handleImportToInventory = (item: any) => {
+    if (onImportDevices) {
+      onImportDevices([{
+        ip: item.ip,
+        name: item.name,
+        type: item.type,
+        status: "Online",
+        ping: item.ping,
+        cpu: Math.floor(Math.random() * 15) + 5,
+        memory: Math.floor(Math.random() * 25) + 10,
+        mac: item.mac
+      }]);
+    }
+  };
+
+  const handleImportAll = () => {
+    if (onImportDevices && discoveredDevices.length > 0) {
+      const formatted = discoveredDevices.map(d => ({
+        ip: d.ip,
+        name: d.name,
+        type: d.type,
+        status: d.status as "Online" | "Offline",
+        ping: d.ping,
+        cpu: Math.floor(Math.random() * 15) + 5,
+        memory: Math.floor(Math.random() * 25) + 10,
+        mac: d.mac
+      }));
+      onImportDevices(formatted);
+    }
+  };
 
   // Identify core gateway/router for the hub-and-spoke star topology
   const routerDevice = devices.find(
@@ -166,6 +326,17 @@ export default function NetworkDiagnostics({
                 id="btn-view-nodes"
               >
                 Nodes List
+              </button>
+              <button
+                onClick={() => setViewMode("discovery")}
+                className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded transition cursor-pointer ${
+                  viewMode === "discovery" 
+                    ? "bg-[#7aa2f7] text-slate-950" 
+                    : "text-[#565f89] hover:text-[#a9b1d6]"
+                }`}
+                id="btn-view-discovery"
+              >
+                Device Discovery
               </button>
             </div>
 
@@ -493,7 +664,7 @@ export default function NetworkDiagnostics({
                 </div>
               </div>
             </div>
-          ) : (
+          ) : viewMode === "list" ? (
             /* List Body */
             <div className="flex-1 overflow-y-auto divide-y divide-[#24283b]/30" id="nodes-list-body">
               {filteredDevices.map(d => {
@@ -570,6 +741,208 @@ export default function NetworkDiagnostics({
                   No local subnet nodes found matching filters.
                 </div>
               )}
+            </div>
+          ) : (
+            /* Discovery Body */
+            <div className="flex-1 overflow-y-auto flex flex-col bg-[#16161e]/40 p-3 space-y-3 font-mono text-xs" id="discovery-panel-body">
+              {/* Controls Block */}
+              <div className="bg-[#16161e] border border-[#24283b] p-3 rounded space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center">
+                  <div>
+                    <span className="text-[10px] font-bold text-[#7aa2f7] block">ACTIVE ARP/ICMP DISCOVERY RANGE</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <input
+                        type="text"
+                        value={targetSubnet}
+                        onChange={(e) => setTargetSubnet(e.target.value)}
+                        disabled={isDiscovering}
+                        className="bg-[#0b0c0f] border border-[#24283b] rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:border-[#7aa2f7] w-36 font-mono"
+                      />
+                      <span className="text-[#565f89] text-[10px]">/24 Subnet Sweep</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-[#565f89] text-[10px]">
+                      <input
+                        type="checkbox"
+                        checked={autoDiscoverEnabled}
+                        onChange={(e) => setAutoDiscoverEnabled(e.target.checked)}
+                        className="rounded bg-[#0b0c0f] border-[#24283b] text-[#7aa2f7] focus:ring-0 focus:ring-offset-0"
+                      />
+                      Continuous Monitoring Sniffer
+                    </label>
+                    <button
+                      onClick={handleStartDiscovery}
+                      disabled={isDiscovering}
+                      className="px-3 py-1.5 bg-[#7aa2f7] hover:bg-[#7aa2f7]/85 text-slate-950 font-bold rounded flex items-center gap-1.5 text-[10px] uppercase transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-lg shadow-[#7aa2f7]/10"
+                    >
+                      {isDiscovering ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          Sweeping Segment...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3 h-3 fill-slate-950" />
+                          Initiate Scan Swarm
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Real-time progress */}
+                {(isDiscovering || scanProgress > 0) && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] font-bold">
+                      <span className="text-[#bb9af7] flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 bg-[#bb9af7] rounded-full animate-ping"></span>
+                        {scanProgress < 100 ? "SUB-SEGMENT SWEEP UNDERWAY..." : "SCAN SEGMENT COMPLETED"}
+                      </span>
+                      <span className="text-[#9ece6a]">{scanProgress}%</span>
+                    </div>
+                    <div className="h-2 bg-[#0b0c0f] rounded border border-[#24283b] overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#7aa2f7] to-[#bb9af7] transition-all duration-100"
+                        style={{ width: `${scanProgress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Server Host info banner if fetched */}
+              {serverNetInfo && (
+                <div className="bg-[#16161e]/80 border border-[#24283b] p-2.5 rounded text-[10px] text-[#565f89] grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div>
+                    <span className="text-[#a9b1d6] font-bold block uppercase">Local Gateway Host</span>
+                    <span className="text-slate-400 font-mono">{serverNetInfo.hostname} ({serverNetInfo.platform} {serverNetInfo.release})</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-[#a9b1d6] font-bold block uppercase">Primary Server NIC Interfaces</span>
+                    <div className="flex flex-wrap gap-x-2 gap-y-1 text-slate-400 mt-0.5">
+                      {serverNetInfo.interfaces.map((iface: any, idx: number) => (
+                        <span key={idx} className="bg-[#0b0c0f] border border-[#24283b] px-1 rounded text-[9px]">
+                          {iface.interfaceName}: <span className="text-[#7aa2f7]">{iface.address}</span> (MAC: {iface.mac})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Double Pane content: Discovered Devices list & Live Terminal Logs */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-[250px]">
+                {/* Discovered Devices list (7/12) */}
+                <div className="lg:col-span-7 bg-[#16161e] border border-[#24283b] rounded flex flex-col overflow-hidden">
+                  <div className="p-2 border-b border-[#24283b] bg-[#1a1b26] flex justify-between items-center">
+                    <span className="text-[10px] font-bold text-slate-300">DISCOVERED SUBNET NODES ({discoveredDevices.length})</span>
+                    {discoveredDevices.length > 0 && (
+                      <button
+                        onClick={handleImportAll}
+                        className="text-[9px] px-2 py-0.5 bg-[#9ece6a]/15 text-[#9ece6a] border border-[#9ece6a]/20 rounded hover:bg-[#9ece6a]/25 transition font-bold cursor-pointer"
+                      >
+                        IMPORT ALL TO MAP
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex-1 divide-y divide-[#24283b]/40 overflow-y-auto max-h-[260px]">
+                    {discoveredDevices.map((d) => {
+                      const isAlreadyInInventory = devices.some(ex => ex.ip === d.ip);
+                      const isSelected = selectedDiscoveredIp === d.ip;
+                      return (
+                        <div
+                          key={d.ip}
+                          onClick={() => setSelectedDiscoveredIp(d.ip)}
+                          className={`p-2 flex items-center justify-between cursor-pointer transition ${
+                            isSelected ? "bg-[#24283b]/60" : "hover:bg-[#24283b]/25"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="bg-[#0b0c0f] border border-[#24283b] p-1.5 rounded text-slate-300">
+                              {getDeviceIcon(d.type)}
+                            </div>
+                            <div className="truncate">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-slate-200 text-xs">{d.name}</span>
+                                <span className="text-[8px] bg-[#0b0c0f] text-[#565f89] border border-[#24283b] px-1 rounded uppercase font-mono">
+                                  {d.vendor}
+                                </span>
+                              </div>
+                              <div className="text-[9px] text-[#565f89] font-mono mt-0.5">
+                                IP: <span className="text-slate-300">{d.ip}</span> • MAC: <span className="text-slate-300">{d.mac}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 shrink-0 font-mono text-[9px]">
+                            {d.bandwidth && d.status === "Online" && (
+                              <div className="text-right hidden sm:block text-[#565f89]">
+                                <div>TX: <span className="text-[#7aa2f7]">{d.bandwidth.tx} KB/s</span></div>
+                                <div>RX: <span className="text-[#bb9af7]">{d.bandwidth.rx} KB/s</span></div>
+                              </div>
+                            )}
+                            <div className="text-right">
+                              <div className="text-[#9ece6a] font-bold">ONLINE</div>
+                              <div className="text-[#565f89] text-[8px]">{d.ping}</div>
+                            </div>
+                            <div>
+                              {isAlreadyInInventory ? (
+                                <span className="px-1.5 py-0.5 bg-[#9ece6a]/10 text-[#9ece6a] rounded border border-[#9ece6a]/15 font-semibold text-[8px]">
+                                  MAPPED
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleImportToInventory(d);
+                                  }}
+                                  className="px-1.5 py-0.5 bg-[#7aa2f7]/15 text-[#7aa2f7] hover:bg-[#7aa2f7]/25 rounded border border-[#7aa2f7]/20 font-semibold text-[8px] transition cursor-pointer"
+                                >
+                                  ADD MAP
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {discoveredDevices.length === 0 && (
+                      <div className="p-8 text-center text-[#565f89] space-y-2">
+                        <Search className="w-6 h-6 mx-auto animate-pulse" />
+                        <p className="text-[10px]">No active devices discovered on subnet. Trigger scan sequence above.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Console Log window (5/12) */}
+                <div className="lg:col-span-5 bg-[#0b0c0f] border border-[#24283b] rounded flex flex-col overflow-hidden font-mono text-[9px] text-slate-300">
+                  <div className="p-2 border-b border-[#24283b] bg-[#16161e] text-[#565f89] font-bold">
+                    PACKET & SWEEPING MONITOR LOGS
+                  </div>
+                  <div className="flex-1 p-2 overflow-y-auto space-y-1 max-h-[260px] flex flex-col-reverse select-all scrollbar-thin scrollbar-thumb-[#24283b] scrollbar-track-[#16161e]">
+                    {scanLogs.slice().reverse().map((log, index) => {
+                      let color = "text-[#a9b1d6]";
+                      if (log.includes("[ERROR]")) color = "text-[#f7768e]";
+                      if (log.includes("[DISCOVERED]")) color = "text-[#9ece6a] font-bold";
+                      if (log.includes("[SUCCESS]")) color = "text-[#bb9af7] font-bold";
+                      if (log.includes("[SYSTEM]")) color = "text-[#7aa2f7]";
+                      return (
+                        <div key={index} className={`leading-tight whitespace-pre-wrap ${color}`}>
+                          {log}
+                        </div>
+                      );
+                    })}
+                    {scanLogs.length === 0 && (
+                      <div className="text-center text-[#565f89] py-12">
+                        [MONITOR IDLE - WAITING FOR PACKET SWARM SWEEP]
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
