@@ -9,11 +9,59 @@ import TerminalConsole from "./components/TerminalConsole";
 import NmapScanner from "./components/NmapScanner";
 import WiresharkConsole from "./components/WiresharkConsole";
 import InstallationWizard from "./components/InstallationWizard";
-import { Device, Process, ThreatLog, FirewallRule, TerminalLine, SystemAlert, PlannerTask, SuspiciousActivity } from "./types";
+import AppConfiguration from "./components/AppConfiguration";
+import { Device, Process, ThreatLog, FirewallRule, TerminalLine, SystemAlert, PlannerTask, SuspiciousActivity, ThemeMode, AppConfig } from "./types";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [securityScore, setSecurityScore] = useState<number>(94);
+
+  // App Configuration & Theme State
+  const [appConfig, setAppConfig] = useState<AppConfig>(() => {
+    const saved = localStorage.getItem("netguard_app_config");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return {
+      theme: "dark",
+      autoRefreshInterval: 3,
+      soundEffects: true,
+      retroFontEnabled: false,
+      scanSubnetRange: "192.168.1.0/24",
+      enableAiAdvisories: true,
+      maxPacketCapture: 500
+    };
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", appConfig.theme);
+    localStorage.setItem("netguard_app_config", JSON.stringify(appConfig));
+  }, [appConfig]);
+
+  const handleUpdateConfig = (newConfig: Partial<AppConfig>) => {
+    setAppConfig(prev => ({ ...prev, ...newConfig }));
+  };
+
+  const handleSelectTheme = (theme: ThemeMode) => {
+    setAppConfig(prev => ({ ...prev, theme }));
+  };
+
+  const handleResetConfigDefaults = () => {
+    const defaultConfig: AppConfig = {
+      theme: "dark",
+      autoRefreshInterval: 3,
+      soundEffects: true,
+      retroFontEnabled: false,
+      scanSubnetRange: "192.168.1.0/24",
+      enableAiAdvisories: true,
+      maxPacketCapture: 500
+    };
+    setAppConfig(defaultConfig);
+  };
 
   // 1. Devices state
   const [devices, setDevices] = useState<Device[]>([
@@ -652,11 +700,55 @@ Advice: Run 'ai explain how to audit anomalous socket connections' to request st
           setActiveTab={setActiveTab} 
           alertCount={alerts.length} 
           threatCount={threatLogs.filter(t => t.status === "Flagged").length + suspiciousActivities.filter(a => a.status === "active").length} 
+          currentTheme={appConfig.theme}
+          onSelectTheme={handleSelectTheme}
         />
 
         {/* Right Hand side content window area */}
-        <main className="flex-1 bg-[#0b0c0f] overflow-hidden relative">
+        <main className="flex-1 bg-[#0b0c0f] overflow-hidden relative flex flex-col">
           
+          {/* Retro Theme Overlay Banners */}
+          {appConfig.theme === "win31" && (
+            <div className="bg-[#000080] text-white px-3 py-1 flex items-center justify-between text-xs font-bold border-b-2 border-black font-sans shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="px-1.5 py-0.2 bg-white text-black text-[10px] border border-black font-mono">[-]</span>
+                <span>Program Manager - NetGuard Omni-Diagnostic Suite [1992]</span>
+              </div>
+              <div className="flex items-center gap-1 font-mono text-[11px]">
+                <span className="px-1 py-0.2 bg-[#c0c0c0] text-black border border-black cursor-pointer">[▲]</span>
+                <span className="px-1 py-0.2 bg-[#c0c0c0] text-black border border-black cursor-pointer">[▼]</span>
+              </div>
+            </div>
+          )}
+
+          {appConfig.theme === "mario" && (
+            <div className="bg-[#000000] text-[#ffffff] px-4 py-1.5 flex items-center justify-between text-[10px] font-mono border-b-2 border-[#f8b800] shrink-0">
+              <div className="flex items-center gap-4">
+                <span className="text-[#e52521] font-bold">MARIO</span>
+                <span className="text-[#f8b800]">003820</span>
+                <span className="text-[#f8b800]">🪙 x99</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[#00a800]">WORLD 1-1</span>
+                <span className="text-[#fc9838]">TIME 350</span>
+              </div>
+            </div>
+          )}
+
+          {appConfig.theme === "johnny5" && (
+            <div className="bg-[#121922] text-[#ff9900] px-4 py-1 flex items-center justify-between text-[10px] font-mono border-b border-[#ff9900] shrink-0 shadow">
+              <div className="flex items-center gap-3">
+                <span className="font-bold bg-[#ff9900] text-slate-950 px-1.5 py-0.2 rounded text-[9px]">S.A.I.N.T. #5</span>
+                <span>STATUS: ALIVE!</span>
+                <span className="text-[#00ffcc]">INPUT: NEED INPUT!</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[#ff3330]">DISASSEMBLE: FALSE</span>
+                <span className="text-[#00d2ff]">OPTIC LASER: READY</span>
+              </div>
+            </div>
+          )}
+
           {activeTab === "dashboard" && (
             <DashboardOverview 
               devices={devices} 
@@ -745,6 +837,14 @@ Advice: Run 'ai explain how to audit anomalous socket connections' to request st
           {activeTab === "wizard" && (
             <InstallationWizard 
               onSaveConfig={handleSaveConfig}
+            />
+          )}
+
+          {activeTab === "config" && (
+            <AppConfiguration 
+              config={appConfig}
+              onUpdateConfig={handleUpdateConfig}
+              onResetDefaults={handleResetConfigDefaults}
             />
           )}
 

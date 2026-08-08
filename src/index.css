@@ -1,34 +1,272 @@
 @import "tailwindcss";
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Press+Start+2P&family=VT323&family=Share+Tech+Mono&display=swap');
+
+/* CSS ROOT THEME VARIABLES */
+:root, [data-theme="dark"] {
+  --bg-app: #0b0c0f;
+  --bg-sidebar: #1a1b26;
+  --bg-surface: #16161e;
+  --bg-card: #16161e;
+  --border-color: #24283b;
+  --border-active: #7aa2f7;
+  --text-main: #a9b1d6;
+  --text-muted: #565f89;
+  --text-bright: #f7f8f2;
+  --accent-primary: #7aa2f7;
+  --accent-success: #9ece6a;
+  --accent-danger: #f7768e;
+  --accent-warning: #e0af68;
+  --accent-purple: #bb9af7;
+  --font-family-body: 'Plus Jakarta Sans', sans-serif;
+  --font-family-mono: 'JetBrains Mono', monospace;
+  --border-radius: 0.375rem;
+  --border-width: 1px;
+}
+
+[data-theme="high-contrast"] {
+  --bg-app: #000000;
+  --bg-sidebar: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-card: #050505;
+  --border-color: #ffffff;
+  --border-active: #00ffff;
+  --text-main: #ffffff;
+  --text-muted: #ffff00;
+  --text-bright: #ffffff;
+  --accent-primary: #00ffff;
+  --accent-success: #00ff00;
+  --accent-danger: #ff0055;
+  --accent-warning: #ffff00;
+  --accent-purple: #ff00ff;
+  --font-family-body: 'Plus Jakarta Sans', sans-serif;
+  --font-family-mono: 'JetBrains Mono', monospace;
+  --border-radius: 0px;
+  --border-width: 2px;
+}
+
+[data-theme="win31"] {
+  --bg-app: #008080;
+  --bg-sidebar: #c0c0c0;
+  --bg-surface: #c0c0c0;
+  --bg-card: #c0c0c0;
+  --border-color: #000000;
+  --border-active: #000080;
+  --text-main: #000000;
+  --text-muted: #333333;
+  --text-bright: #000000;
+  --accent-primary: #000080;
+  --accent-success: #008000;
+  --accent-danger: #800000;
+  --accent-warning: #808000;
+  --accent-purple: #800080;
+  --font-family-body: 'Tahoma', 'MS Sans Serif', sans-serif;
+  --font-family-mono: 'VT323', 'Courier New', monospace;
+  --border-radius: 0px;
+  --border-width: 2px;
+}
+
+[data-theme="mario"] {
+  --bg-app: #5c94fc;
+  --bg-sidebar: #000000;
+  --bg-surface: #1e1000;
+  --bg-card: #2d1700;
+  --border-color: #000000;
+  --border-active: #f8b800;
+  --text-main: #ffffff;
+  --text-muted: #f8b800;
+  --text-bright: #ffffff;
+  --accent-primary: #f8b800;
+  --accent-success: #00a800;
+  --accent-danger: #e52521;
+  --accent-warning: #f8b800;
+  --accent-purple: #fc9838;
+  --font-family-body: 'Share Tech Mono', 'Press Start 2P', monospace;
+  --font-family-mono: 'Press Start 2P', monospace;
+  --border-radius: 2px;
+  --border-width: 2px;
+}
+
+[data-theme="johnny5"] {
+  --bg-app: #080c12;
+  --bg-sidebar: #121922;
+  --bg-surface: #18222d;
+  --bg-card: #141c26;
+  --border-color: #283a4e;
+  --border-active: #ff9900;
+  --text-main: #d0e0f0;
+  --text-muted: #ffaa00;
+  --text-bright: #ffffff;
+  --accent-primary: #ff9900;
+  --accent-success: #00ffcc;
+  --accent-danger: #ff3330;
+  --accent-warning: #ffaa00;
+  --accent-purple: #00d2ff;
+  --font-family-body: 'JetBrains Mono', monospace;
+  --font-family-mono: 'JetBrains Mono', monospace;
+  --border-radius: 2px;
+  --border-width: 1px;
+}
 
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: #0b0c0f;
-    color: #a9b1d6;
+    font-family: var(--font-family-body);
+    background-color: var(--bg-app);
+    color: var(--text-main);
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
   
   .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-family-mono);
   }
 }
 
-/* Custom mini scrollbar for high density layout */
+/* Custom mini scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0b0c0f;
+  background: var(--bg-app);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #24283b;
-  border-radius: 3px;
+  background: var(--border-color);
+  border-radius: var(--border-radius);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #565f89;
+  background: var(--text-muted);
 }
+
+/* -------------------------------------------------------------------------
+   HIGH CONTRAST MODE CLASS OVERRIDES
+   ------------------------------------------------------------------------- */
+[data-theme="high-contrast"] .bg-\[\#0b0c0f\] { background-color: #000000 !important; }
+[data-theme="high-contrast"] .bg-\[\#1a1b26\] { background-color: #000000 !important; border-color: #ffffff !important; }
+[data-theme="high-contrast"] .bg-\[\#16161e\] { background-color: #000000 !important; border-color: #ffffff !important; }
+[data-theme="high-contrast"] .bg-\[\#24283b\] { background-color: #111111 !important; border-color: #ffffff !important; }
+[data-theme="high-contrast"] .bg-\[\#1f2335\] { background-color: #0a0a0a !important; border-color: #ffffff !important; }
+[data-theme="high-contrast"] .border-\[\#24283b\] { border-color: #ffffff !important; border-width: 2px !important; }
+[data-theme="high-contrast"] .text-\[\#a9b1d6\] { color: #ffffff !important; }
+[data-theme="high-contrast"] .text-\[\#565f89\] { color: #ffff00 !important; }
+[data-theme="high-contrast"] .text-\[\#7aa2f7\] { color: #00ffff !important; }
+[data-theme="high-contrast"] .text-\[\#9ece6a\] { color: #00ff00 !important; }
+[data-theme="high-contrast"] .text-\[\#f7768e\] { color: #ff0055 !important; }
+[data-theme="high-contrast"] .text-\[\#e0af68\] { color: #ffff00 !important; }
+[data-theme="high-contrast"] .text-\[\#bb9af7\] { color: #ff00ff !important; }
+[data-theme="high-contrast"] .text-slate-100,
+[data-theme="high-contrast"] .text-slate-200,
+[data-theme="high-contrast"] .text-slate-300 { color: #ffffff !important; }
+[data-theme="high-contrast"] button { border-width: 2px !important; }
+
+/* -------------------------------------------------------------------------
+   WINDOWS 3.1 CLASS OVERRIDES (Classic 1992 GUI)
+   ------------------------------------------------------------------------- */
+[data-theme="win31"] .bg-\[\#0b0c0f\] { background-color: #008080 !important; }
+[data-theme="win31"] .bg-\[\#1a1b26\] { 
+  background-color: #c0c0c0 !important; 
+  color: #000000 !important;
+  border-right: 2px solid #808080 !important;
+}
+[data-theme="win31"] .bg-\[\#16161e\] { 
+  background-color: #c0c0c0 !important; 
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+  border-right-color: #404040 !important;
+  border-bottom-color: #404040 !important;
+  box-shadow: inset -1px -1px #000, inset 1px 1px #dfdfdf;
+}
+[data-theme="win31"] .bg-\[\#24283b\] { 
+  background-color: #000080 !important; 
+  color: #ffffff !important; 
+}
+[data-theme="win31"] .bg-\[\#1f2335\] { background-color: #d4d4d4 !important; color: #000000 !important; }
+[data-theme="win31"] .border-\[\#24283b\] { border-color: #808080 !important; }
+[data-theme="win31"] .text-\[\#a9b1d6\] { color: #000000 !important; }
+[data-theme="win31"] .text-\[\#565f89\] { color: #404040 !important; }
+[data-theme="win31"] .text-\[\#7aa2f7\] { color: #000080 !important; font-weight: bold; }
+[data-theme="win31"] .text-\[\#9ece6a\] { color: #008000 !important; font-weight: bold; }
+[data-theme="win31"] .text-\[\#f7768e\] { color: #800000 !important; font-weight: bold; }
+[data-theme="win31"] .text-\[\#e0af68\] { color: #808000 !important; }
+[data-theme="win31"] .text-\[\#bb9af7\] { color: #800080 !important; }
+[data-theme="win31"] .text-slate-100, 
+[data-theme="win31"] .text-slate-200, 
+[data-theme="win31"] .text-slate-300 { color: #000000 !important; }
+[data-theme="win31"] button {
+  background-color: #c0c0c0;
+  border: 2px solid #ffffff !important;
+  border-right-color: #000000 !important;
+  border-bottom-color: #000000 !important;
+  color: #000000 !important;
+}
+[data-theme="win31"] button:active {
+  border: 2px solid #000000 !important;
+  border-right-color: #ffffff !important;
+  border-bottom-color: #ffffff !important;
+}
+
+/* -------------------------------------------------------------------------
+   SUPER MARIO BROS CLASS OVERRIDES (8-Bit NES Arcade)
+   ------------------------------------------------------------------------- */
+[data-theme="mario"] .bg-\[\#0b0c0f\] { background-color: #5c94fc !important; }
+[data-theme="mario"] .bg-\[\#1a1b26\] { 
+  background-color: #000000 !important; 
+  border-color: #f8b800 !important;
+  color: #ffffff !important;
+}
+[data-theme="mario"] .bg-\[\#16161e\] { 
+  background-color: #211100 !important; 
+  border: 3px solid #000000 !important; 
+  box-shadow: 4px 4px 0px #000000;
+  color: #ffffff !important;
+}
+[data-theme="mario"] .bg-\[\#24283b\] { 
+  background-color: #e52521 !important; 
+  color: #ffffff !important; 
+  border: 2px solid #000000 !important;
+}
+[data-theme="mario"] .bg-\[\#1f2335\] { background-color: #f8b800 !important; color: #000000 !important; }
+[data-theme="mario"] .border-\[\#24283b\] { border-color: #000000 !important; border-width: 2px !important; }
+[data-theme="mario"] .text-\[\#a9b1d6\] { color: #ffffff !important; }
+[data-theme="mario"] .text-\[\#565f89\] { color: #f8b800 !important; font-weight: bold; }
+[data-theme="mario"] .text-\[\#7aa2f7\] { color: #f8b800 !important; font-weight: bold; }
+[data-theme="mario"] .text-\[\#9ece6a\] { color: #00a800 !important; font-weight: bold; }
+[data-theme="mario"] .text-\[\#f7768e\] { color: #e52521 !important; font-weight: bold; }
+[data-theme="mario"] .text-\[\#e0af68\] { color: #f8b800 !important; }
+[data-theme="mario"] .text-\[\#bb9af7\] { color: #fc9838 !important; }
+[data-theme="mario"] .text-slate-100, 
+[data-theme="mario"] .text-slate-200, 
+[data-theme="mario"] .text-slate-300 { color: #ffffff !important; }
+
+/* -------------------------------------------------------------------------
+   JOHNNY 5 SHORT CIRCUIT CLASS OVERRIDES (S.A.I.N.T. Prototype #5)
+   ------------------------------------------------------------------------- */
+[data-theme="johnny5"] .bg-\[\#0b0c0f\] { background-color: #080c12 !important; }
+[data-theme="johnny5"] .bg-\[\#1a1b26\] { 
+  background-color: #121922 !important; 
+  border-color: #ff9900 !important;
+}
+[data-theme="johnny5"] .bg-\[\#16161e\] { 
+  background-color: #18222d !important; 
+  border: 1px solid rgba(255, 153, 0, 0.4) !important;
+  box-shadow: 0 0 10px rgba(255, 153, 0, 0.08);
+}
+[data-theme="johnny5"] .bg-\[\#24283b\] { 
+  background-color: #223040 !important; 
+  border-color: #ff9900 !important; 
+  color: #ff9900 !important;
+}
+[data-theme="johnny5"] .bg-\[\#1f2335\] { background-color: #1c2733 !important; }
+[data-theme="johnny5"] .border-\[\#24283b\] { border-color: #283a4e !important; }
+[data-theme="johnny5"] .text-\[\#a9b1d6\] { color: #d0e0f0 !important; }
+[data-theme="johnny5"] .text-\[\#565f89\] { color: #ffaa00 !important; font-weight: bold; }
+[data-theme="johnny5"] .text-\[\#7aa2f7\] { color: #ff9900 !important; font-weight: bold; }
+[data-theme="johnny5"] .text-\[\#9ece6a\] { color: #00ffcc !important; font-weight: bold; }
+[data-theme="johnny5"] .text-\[\#f7768e\] { color: #ff3330 !important; font-weight: bold; }
+[data-theme="johnny5"] .text-\[\#e0af68\] { color: #ffaa00 !important; }
+[data-theme="johnny5"] .text-\[\#bb9af7\] { color: #00d2ff !important; }
+[data-theme="johnny5"] .text-slate-100, 
+[data-theme="johnny5"] .text-slate-200, 
+[data-theme="johnny5"] .text-slate-300 { color: #ffffff !important; }

@@ -140,3 +140,15 @@ export interface ThreatResponseReport {
   exportedTo: string[];
 }
 
+export type ThemeMode = "dark" | "high-contrast" | "win31" | "mario" | "johnny5";
+
+export interface AppConfig {
+  theme: ThemeMode;
+  autoRefreshInterval: number;
+  soundEffects: boolean;
+  retroFontEnabled: boolean;
+  scanSubnetRange: string;
+  enableAiAdvisories: boolean;
+  maxPacketCapture: number;
+}
+

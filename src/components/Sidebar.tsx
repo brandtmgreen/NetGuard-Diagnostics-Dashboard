@@ -10,17 +10,21 @@ import {
   Bell,
   ClipboardCheck,
   Eye,
-  Wrench
+  Wrench,
+  Palette
 } from "lucide-react";
+import { ThemeMode } from "../types";
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   alertCount: number;
   threatCount: number;
+  currentTheme?: ThemeMode;
+  onSelectTheme?: (theme: ThemeMode) => void;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, alertCount, threatCount }: SidebarProps) {
+export default function Sidebar({ activeTab, setActiveTab, alertCount, threatCount, currentTheme, onSelectTheme }: SidebarProps) {
   const [time, setTime] = useState<string>("");
 
   useEffect(() => {
@@ -42,7 +46,8 @@ export default function Sidebar({ activeTab, setActiveTab, alertCount, threatCou
     { id: "wireshark", label: "Wireshark Console", icon: Eye },
     { id: "security", label: "Security Center", icon: ShieldAlert, badge: threatCount, badgeColor: "bg-[#f7768e] text-slate-950 font-bold" },
     { id: "terminal", label: "Interactive Terminal", icon: Terminal },
-    { id: "wizard", label: "Deployment Wizard", icon: Wrench }
+    { id: "wizard", label: "Deployment Wizard", icon: Wrench },
+    { id: "config", label: "App Configuration", icon: Settings }
   ];
 
   return (
@@ -92,6 +97,27 @@ export default function Sidebar({ activeTab, setActiveTab, alertCount, threatCou
 
       {/* Footer System Info */}
       <div className="p-3 border-t border-[#24283b] bg-[#16161e] flex flex-col gap-1.5">
+        {/* Quick Theme Selector */}
+        {currentTheme && onSelectTheme && (
+          <div className="flex items-center justify-between text-[10px] text-[#565f89] border-b border-[#24283b]/60 pb-1.5 mb-0.5">
+            <span className="flex items-center gap-1 font-bold text-[#7aa2f7] uppercase font-mono">
+              <Palette className="w-3 h-3" /> Theme
+            </span>
+            <select
+              value={currentTheme}
+              onChange={(e) => onSelectTheme(e.target.value as ThemeMode)}
+              className="bg-[#0b0c0f] border border-[#24283b] text-[10px] text-slate-200 rounded px-1.5 py-0.5 font-mono focus:outline-none focus:border-[#7aa2f7] cursor-pointer"
+              id="sidebar-theme-selector"
+            >
+              <option value="dark">Dark Mode</option>
+              <option value="high-contrast">High Contrast</option>
+              <option value="win31">Windows 3.1</option>
+              <option value="mario">Mario Bros</option>
+              <option value="johnny5">Johnny 5</option>
+            </select>
+          </div>
+        )}
+
         <div className="flex items-center justify-between text-[10px] text-[#565f89]">
           <span className="font-mono uppercase">System Node</span>
           <span className="flex items-center gap-1 font-mono font-bold text-[#9ece6a]">
