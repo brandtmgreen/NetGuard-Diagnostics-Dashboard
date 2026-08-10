@@ -1197,7 +1197,7 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
           </div>
           <div className="bg-[#16161e] p-2 border-t border-[#24283b] flex justify-between items-center text-[10px] text-[#565f89] font-mono">
             <span>Active threads: {sortedProcesses.length} items</span>
-            <span>Gateway Monitor Node: localhost (192.168.1.15)</span>
+            <span>Gateway Monitor Node: localhost (this host)</span>
           </div>
         </div>
       )}

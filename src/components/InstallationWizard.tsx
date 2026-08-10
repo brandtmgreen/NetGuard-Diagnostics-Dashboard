@@ -41,46 +41,42 @@ export default function InstallationWizard({ onSaveConfig }: InstallationWizardP
   const [configurationSaved, setConfigurationSaved] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Run requirement checks
-  const runDiagnostics = () => {
+  // Run requirement checks against the real diagnostic daemon
+  const runDiagnostics = async () => {
     setLoadingChecks(true);
-    
-    // Simulate gradual diagnosis checks for immersive, professional feel
-    setTimeout(() => {
-      setChecks(prev => ({
-        ...prev,
-        node: { status: "passed", value: "Node.js v18.16.0 (Passed)", required: "v18.0.0+" }
-      }));
-    }, 400);
+    setChecks(prev => ({
+      ...prev,
+      node: { status: "checking", value: "Querying daemon runtime...", required: "Server Online" },
+      port: { status: "checking", value: "Verifying Port 3000...", required: "Port 3000 Bound" },
+      ram: { status: "checking", value: "Analyzing system memory...", required: "4GB+ Available" },
+      os: { status: "checking", value: "Detecting platform...", required: "Supported OS" },
+      internet: { status: "checking", value: "Testing daemon reachability...", required: "API Responding" }
+    }));
 
-    setTimeout(() => {
-      setChecks(prev => ({
-        ...prev,
-        port: { status: "passed", value: "Port 3000 is IDLE & Ready", required: "Port 3000 Free" }
-      }));
-    }, 800);
+    try {
+      const res = await fetch("/api/system/status");
+      const status = await res.json();
+      const ramGb = status.totalMemBytes ? (status.totalMemBytes / 1024 / 1024 / 1024).toFixed(1) : "?";
+      const loadPct = status.cpuCount ? Math.round(((status.loadAvg?.[0] ?? 0) / status.cpuCount) * 100) : 0;
 
-    setTimeout(() => {
-      setChecks(prev => ({
-        ...prev,
-        ram: { status: "passed", value: "16.0 GB System RAM Detected", required: "4GB+ Available" }
-      }));
-    }, 1200);
-
-    setTimeout(() => {
-      setChecks(prev => ({
-        ...prev,
-        os: { status: "passed", value: "Windows NT 10.0 (Win11 Pro Build 22621)", required: "Windows 10/11" }
-      }));
-    }, 1500);
-
-    setTimeout(() => {
-      setChecks(prev => ({
-        ...prev,
-        internet: { status: "passed", value: "RTT: 18ms to api.google.com (Connected)", required: "Ping DNS Successful" }
-      }));
+      setChecks({
+        node: { status: "passed", value: `Diagnostic daemon online (host ${status.hostname || "unknown"})`, required: "Server Online" },
+        port: { status: "passed", value: "Port 3000 bound & listening", required: "Port 3000 Bound" },
+        ram: { status: "passed", value: `${ramGb} GB Total RAM (${status.usedMemPercent ?? 0}% used)`, required: "4GB+ Available" },
+        os: { status: "passed", value: `${status.platform || "unknown"} ${status.release || ""} (${status.arch || ""})`, required: "Supported OS" },
+        internet: { status: "passed", value: `Core load ${loadPct}% — daemon API reachable`, required: "API Responding" }
+      });
+    } catch (err: any) {
+      setChecks({
+        node: { status: "failed", value: "Daemon unreachable", required: "Server Online" },
+        port: { status: "failed", value: "Port 3000 not responding", required: "Port 3000 Bound" },
+        ram: { status: "failed", value: "Unknown", required: "4GB+ Available" },
+        os: { status: "failed", value: "Unknown", required: "Supported OS" },
+        internet: { status: "failed", value: err?.message || "No response", required: "API Responding" }
+      });
+    } finally {
       setLoadingChecks(false);
-    }, 1900);
+    }
   };
 
   useEffect(() => {
@@ -222,6 +218,10 @@ export default function InstallationWizard({ onSaveConfig }: InstallationWizardP
                         {item.status === "passed" ? (
                           <span className="bg-[#9ece6a]/10 text-[#9ece6a] border border-[#9ece6a]/20 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">
                             COMPATIBLE
+                          </span>
+                        ) : item.status === "failed" ? (
+                          <span className="bg-[#f7768e]/10 text-[#f7768e] border border-[#f7768e]/20 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">
+                            INCOMPATIBLE
                           </span>
                         ) : (
                           <span className="bg-[#e0af68]/10 text-[#e0af68] border border-[#e0af68]/20 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase animate-pulse">

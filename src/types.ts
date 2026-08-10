@@ -71,6 +71,14 @@ export interface SuspiciousActivity {
   packetSize: string;
   reason: string;
   status: "active" | "mitigated" | "ignored";
+  process?: string;
+  geo?: {
+    lat: number;
+    lng: number;
+    city: string;
+    country: string;
+    countryCode: string;
+  };
 }
 
 export interface SystemAlert {
