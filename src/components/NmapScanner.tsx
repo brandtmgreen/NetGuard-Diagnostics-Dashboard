@@ -25,7 +25,7 @@ interface NmapScannerProps {
 }
 
 export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTask }: NmapScannerProps) {
-  const [targetIp, setTargetIp] = useState("192.168.1.44");
+  const [targetIp, setTargetIp] = useState(devices[0]?.ip || "127.0.0.1");
   const [profile, setProfile] = useState<"quick" | "intense" | "vuln" | "os">("vuln");
   const [isLoading, setIsLoading] = useState(false);
   const [scanResult, setScanResult] = useState<NmapScanResult | null>(null);
@@ -42,11 +42,7 @@ export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTa
 
   const handleRunNmap = async () => {
     setIsLoading(true);
-    setTerminalOutput(`Initializing NetGuard Virtual NMAP Scan Engine...\n`);
-    
-    // Simulate real terminal typing/initializing delay
-    await new Promise(r => setTimeout(r, 600));
-    setTerminalOutput(prev => prev + `Nmap executable mapped to host interface eth0...\n`);
+    setTerminalOutput(`Initializing NetGuard NMAP Scan Engine...\n`);
     setTerminalOutput(prev => prev + `Command: nmap -T4 ${profile === "quick" ? "-F" : profile === "intense" ? "-A -v" : profile === "vuln" ? "--script vuln" : "-O"} ${targetIp}\n`);
     setTerminalOutput(prev => prev + `Scanning target host ${targetIp} for open ports...\n`);
     
@@ -58,17 +54,13 @@ export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTa
       });
       const data = await response.json();
       
-      // Simulate gradual port-finding prints
-      await new Promise(r => setTimeout(r, 600));
-      setTerminalOutput(prev => prev + `Host resolved: ${targetIp} is up (RTT <10ms)\n`);
       setTerminalOutput(prev => prev + `Discovered open ports on target:\n`);
       
       data.ports.forEach((p: any) => {
         setTerminalOutput(prev => prev + `  -> Port ${p.port}/${p.protocol}: ${p.state.toUpperCase()} [${p.service}]\n`);
       });
 
-      await new Promise(r => setTimeout(r, 500));
-      setTerminalOutput(prev => prev + `Analyzing signatures with local database signatures...\n`);
+      setTerminalOutput(prev => prev + `Analyzing signatures with local vulnerability databases...\n`);
       setTerminalOutput(prev => prev + `Task completed. Structured reports generated.\n`);
       
       setScanResult(data);
@@ -147,7 +139,10 @@ export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTa
                   </optgroup>
                   <optgroup label="Manual Definition">
                     <option value="127.0.0.1">LocalHost Loopback (127.0.0.1)</option>
-                    <option value="192.168.1.254">Subnet Gateway (192.168.1.254)</option>
+                    {(() => {
+                      const gw = devices.find(d => d.type.toLowerCase() === "router")?.ip;
+                      return gw ? <option value={gw}>Subnet Gateway ({gw})</option> : null;
+                    })()}
                   </optgroup>
                 </select>
                 <input

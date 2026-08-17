@@ -39,46 +39,27 @@ export default function NetworkDiagnostics({
 }: NetworkDiagnosticsProps) {
   const [filter, setFilter] = useState("");
   const [selectedIp, setSelectedIp] = useState<string | null>(null);
-  const [simulatedLoad, setSimulatedLoad] = useState<Record<string, { cpu: number, mem: number }>>({});
   const [viewMode, setViewMode] = useState<"map" | "list" | "discovery">("map");
   const [hoveredIp, setHoveredIp] = useState<string | null>(null);
 
   // Discovery Scanner States
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
-  const [targetSubnet, setTargetSubnet] = useState("192.168.1.0/24");
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([]);
   const [scanLogs, setScanLogs] = useState<string[]>([]);
   const [serverNetInfo, setServerNetInfo] = useState<any>(null);
   const [selectedDiscoveredIp, setSelectedDiscoveredIp] = useState<string | null>(null);
   const [autoDiscoverEnabled, setAutoDiscoverEnabled] = useState(true);
 
-  // Real-time fluctuating pings & dynamic bandwidth updates for scanned subnet clients
-  useEffect(() => {
-    if (discoveredDevices.length === 0) return;
+  // Derive the active LAN segment label from the real device inventory
+  const subnetLabel = (() => {
+    const ip = devices[0]?.ip;
+    if (!ip) return "192.168.1.0/24";
+    const parts = ip.split(".");
+    return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+  })();
+  const [targetSubnet, setTargetSubnet] = useState(subnetLabel);
 
-    const interval = setInterval(() => {
-      setDiscoveredDevices(prev => 
-        prev.map(d => {
-          if (d.status === "Offline") return d;
-          
-          let currentPing = parseInt(d.ping) || 5;
-          currentPing = Math.max(1, Math.min(150, currentPing + (Math.floor(Math.random() * 5) - 2)));
-          
-          const tx = parseFloat((Math.random() * 250 + 2).toFixed(1));
-          const rx = parseFloat((Math.random() * 1200 + 10).toFixed(1));
-
-          return {
-            ...d,
-            ping: `${currentPing}ms`,
-            bandwidth: { tx, rx }
-          };
-        })
-      );
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [discoveredDevices.length]);
 
   const handleStartDiscovery = async () => {
     setIsDiscovering(true);
@@ -113,10 +94,9 @@ export default function NetworkDiagnostics({
           setScanProgress(roundedProgress);
 
           if (roundedProgress % 15 === 0 && roundedProgress < 95) {
-            const tempIp = `192.168.1.${Math.floor(Math.random() * 254) + 1}`;
             setScanLogs(prev => [
               ...prev,
-              `[${new Date().toLocaleTimeString()}] [PING] Probing remote segment IP: ${tempIp}... Timeout (No reply)`,
+              `[${new Date().toLocaleTimeString()}] [PROGRESS] Host sweep ${roundedProgress}% complete — ${pool.length} live addresses on segment.`,
             ]);
           }
 
@@ -173,8 +153,8 @@ export default function NetworkDiagnostics({
         type: item.type,
         status: "Online",
         ping: item.ping,
-        cpu: Math.floor(Math.random() * 15) + 5,
-        memory: Math.floor(Math.random() * 25) + 10,
+        cpu: 0,
+        memory: 0,
         mac: item.mac
       }]);
     }
@@ -188,8 +168,8 @@ export default function NetworkDiagnostics({
         type: d.type,
         status: d.status as "Online" | "Offline",
         ping: d.ping,
-        cpu: Math.floor(Math.random() * 15) + 5,
-        memory: Math.floor(Math.random() * 25) + 10,
+        cpu: 0,
+        memory: 0,
         mac: d.mac
       }));
       onImportDevices(formatted);
@@ -242,39 +222,6 @@ export default function NetworkDiagnostics({
     }
   };
 
-  // Simulate subtle real-time fluctuation of client device resources
-  useEffect(() => {
-    const initLoads: Record<string, { cpu: number, mem: number }> = {};
-    devices.forEach(d => {
-      initLoads[d.ip] = { cpu: d.cpu, mem: d.memory };
-    });
-    setSimulatedLoad(initLoads);
-
-    const interval = setInterval(() => {
-      setSimulatedLoad(prev => {
-        const next = { ...prev };
-        devices.forEach(d => {
-          if (d.status === "Offline") {
-            next[d.ip] = { cpu: 0, mem: 0 };
-            return;
-          }
-          const cpuOffset = Math.floor(Math.random() * 11) - 5; // -5 to +5
-          const memOffset = Math.floor(Math.random() * 5) - 2;   // -2 to +2
-          const baseCpu = prev[d.ip]?.cpu ?? d.cpu;
-          const baseMem = prev[d.ip]?.mem ?? d.memory;
-          
-          next[d.ip] = {
-            cpu: Math.max(2, Math.min(99, baseCpu + cpuOffset)),
-            mem: Math.max(5, Math.min(95, baseMem + memOffset))
-          };
-        });
-        return next;
-      });
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [devices]);
-
   const filteredDevices = devices.filter(d => 
     d.name.toLowerCase().includes(filter.toLowerCase()) || 
     d.ip.includes(filter) ||
@@ -292,7 +239,7 @@ export default function NetworkDiagnostics({
           <p className="text-[#565f89] text-[11px]">Subnet diagnostics, ICMP delay counters, and remote device telemetry streams.</p>
         </div>
         <div className="text-[10px] bg-[#16161e] border border-[#24283b] px-2.5 py-1 text-[#565f89] font-mono rounded">
-          SUBNET: <span className="text-[#9ece6a]">192.168.1.0/24</span>
+          SUBNET: <span className="text-[#9ece6a]">{subnetLabel}</span>
         </div>
       </div>
 
@@ -383,7 +330,7 @@ export default function NetworkDiagnostics({
                   
                   const isOnline = d.status === "Online";
                   const isSelected = selectedIp === d.ip;
-                  const stats = simulatedLoad[d.ip] || { cpu: d.cpu, mem: d.memory };
+                  const stats = { cpu: d.cpu, mem: d.memory };
                   
                   // Dim the link if filter search is active and doesn't match this device
                   const matchesFilter = filter === "" || 
@@ -451,7 +398,7 @@ export default function NetworkDiagnostics({
                   
                   const isOnline = d.status === "Online";
                   const isSelected = selectedIp === d.ip;
-                  const stats = simulatedLoad[d.ip] || { cpu: d.cpu, mem: d.memory };
+                  const stats = { cpu: d.cpu, mem: d.memory };
                   const hasAlert = isOnline && (stats.cpu > 80 || stats.mem > 85);
                   const isCenter = d.ip === routerDevice?.ip;
                   const r = isCenter ? 23 : 18;
@@ -587,7 +534,7 @@ export default function NetworkDiagnostics({
                 if (!hoverDevice) return null;
                 const hoverPos = nodePositions.find((p) => p.ip === hoveredIp);
                 if (!hoverPos) return null;
-                const stats = simulatedLoad[hoverDevice.ip] || { cpu: hoverDevice.cpu, mem: hoverDevice.memory };
+                const stats = { cpu: hoverDevice.cpu, mem: hoverDevice.memory };
                 const isOnline = hoverDevice.status === "Online";
 
                 return (
@@ -668,7 +615,7 @@ export default function NetworkDiagnostics({
             /* List Body */
             <div className="flex-1 overflow-y-auto divide-y divide-[#24283b]/30" id="nodes-list-body">
               {filteredDevices.map(d => {
-                const stats = simulatedLoad[d.ip] || { cpu: d.cpu, mem: d.memory };
+                const stats = { cpu: d.cpu, mem: d.memory };
                 const isSelected = selectedIp === d.ip;
                 const hasAlert = d.status === "Online" && (stats.cpu > 80 || stats.mem > 85);
                 
@@ -984,14 +931,14 @@ export default function NetworkDiagnostics({
                   <div>
                     <div className="flex justify-between items-center text-[10px] text-[#565f89] font-mono mb-1">
                       <span>PROCESSOR MULTITHREAD CORES</span>
-                      <span className="font-bold text-[#a9b1d6]">{(simulatedLoad[selectedDevice.ip]?.cpu ?? selectedDevice.cpu)}%</span>
+                      <span className="font-bold text-[#a9b1d6]">{(selectedDevice.cpu)}%</span>
                     </div>
                     <div className="h-2 bg-[#16161e] border border-[#24283b] rounded-full overflow-hidden">
                       <div 
                         className={`h-full transition-all duration-500 ${
-                          (simulatedLoad[selectedDevice.ip]?.cpu ?? selectedDevice.cpu) > 80 ? "bg-[#f7768e]" : "bg-[#7aa2f7]"
+                          (selectedDevice.cpu) > 80 ? "bg-[#f7768e]" : "bg-[#7aa2f7]"
                         }`}
-                        style={{ width: `${simulatedLoad[selectedDevice.ip]?.cpu ?? selectedDevice.cpu}%` }}
+                        style={{ width: `${selectedDevice.cpu}%` }}
                       ></div>
                     </div>
                   </div>
@@ -999,46 +946,46 @@ export default function NetworkDiagnostics({
                   <div>
                     <div className="flex justify-between items-center text-[10px] text-[#565f89] font-mono mb-1">
                       <span>COMMITTED SYSTEM MEMORY</span>
-                      <span className="font-bold text-[#a9b1d6]">{(simulatedLoad[selectedDevice.ip]?.mem ?? selectedDevice.memory)}%</span>
+                      <span className="font-bold text-[#a9b1d6]">{(selectedDevice.memory)}%</span>
                     </div>
                     <div className="h-2 bg-[#16161e] border border-[#24283b] rounded-full overflow-hidden">
                       <div 
                         className={`h-full transition-all duration-500 ${
-                          (simulatedLoad[selectedDevice.ip]?.mem ?? selectedDevice.memory) > 85 ? "bg-[#e0af68]" : "bg-[#bb9af7]"
+                          (selectedDevice.memory) > 85 ? "bg-[#e0af68]" : "bg-[#bb9af7]"
                         }`}
-                        style={{ width: `${simulatedLoad[selectedDevice.ip]?.mem ?? selectedDevice.memory}%` }}
+                        style={{ width: `${selectedDevice.memory}%` }}
                       ></div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 font-mono text-[10px] border-t border-[#24283b] pt-3">
                     <div className="bg-[#16161e] p-2 rounded border border-[#24283b]">
-                      <span className="text-[#565f89] block uppercase text-[8px]">NIC Jitter</span>
-                      <span className="text-[#a9b1d6] font-bold">1.2ms Avg</span>
+                      <span className="text-[#565f89] block uppercase text-[8px]">ICMP Latency</span>
+                      <span className="text-[#a9b1d6] font-bold">{selectedDevice.ping}</span>
                     </div>
                     <div className="bg-[#16161e] p-2 rounded border border-[#24283b]">
-                      <span className="text-[#565f89] block uppercase text-[8px]">DNS Resolution</span>
-                      <span className="text-[#9ece6a] font-bold">0.4ms (OK)</span>
+                      <span className="text-[#565f89] block uppercase text-[8px]">MAC Address</span>
+                      <span className="text-[#9ece6a] font-bold">{selectedDevice.mac || "n/a"}</span>
                     </div>
                     <div className="bg-[#16161e] p-2 rounded border border-[#24283b]">
                       <span className="text-[#565f89] block uppercase text-[8px]">Local Gateway Hops</span>
                       <span className="text-[#a9b1d6] font-bold">1 hop</span>
                     </div>
                     <div className="bg-[#16161e] p-2 rounded border border-[#24283b]">
-                      <span className="text-[#565f89] block uppercase text-[8px]">TCP Open Sockets</span>
-                      <span className="text-[#7aa2f7] font-bold">12 Active</span>
+                      <span className="text-[#565f89] block uppercase text-[8px]">Node State</span>
+                      <span className="text-[#7aa2f7] font-bold">{selectedDevice.status.toUpperCase()}</span>
                     </div>
                   </div>
 
                   {/* High Density Trigger Warning Alert banner */}
-                  {(simulatedLoad[selectedDevice.ip]?.cpu ?? selectedDevice.cpu) > 80 && (
+                  {(selectedDevice.cpu) > 80 && (
                     <div className="bg-[#f7768e]/10 border-l-2 border-[#f7768e] p-2 rounded text-xs text-[#f7768e] font-mono">
                       <span className="font-bold">[ALERT] CPU SPIKE OVER 80%</span>
                       <p className="text-[#a9b1d6] text-[10px] mt-0.5">High CPU load detected on remote host. Kill processes or inspect logs to mitigate crash risks.</p>
                     </div>
                   )}
 
-                  {(simulatedLoad[selectedDevice.ip]?.mem ?? selectedDevice.memory) > 85 && (
+                  {(selectedDevice.memory) > 85 && (
                     <div className="bg-[#e0af68]/10 border-l-2 border-[#e0af68] p-2 rounded text-xs text-[#e0af68] font-mono">
                       <span className="font-bold">[ALERT] MEMORY EXCEEDED 85%</span>
                       <p className="text-[#a9b1d6] text-[10px] mt-0.5">Ram commitment high. System may execute memory compression routines shortly.</p>

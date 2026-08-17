@@ -17,6 +17,10 @@ interface DashboardOverviewProps {
   securityScore: number;
   onClearAlerts: () => void;
   onSelectTab: (tab: string) => void;
+  trafficMbps: number;
+  loadPercent: number;
+  hostname: string;
+  onRefresh?: () => void;
 }
 
 export default function DashboardOverview({
@@ -25,28 +29,26 @@ export default function DashboardOverview({
   alerts,
   securityScore,
   onClearAlerts,
-  onSelectTab
+  onSelectTab,
+  trafficMbps,
+  loadPercent,
+  hostname,
+  onRefresh
 }: DashboardOverviewProps) {
-  const [networkTraffic, setNetworkTraffic] = useState<number[]>([15, 24, 35, 30, 48, 52, 45, 68, 70, 62, 58, 65, 80, 72, 85]);
+  const [networkTraffic, setNetworkTraffic] = useState<number[]>([0, 0]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Simulate real-time network throughput shifts
+  // Append real host throughput samples for the interface telemetry graph
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNetworkTraffic(prev => {
-        const next = [...prev.slice(1)];
-        const last = prev[prev.length - 1];
-        const jitter = Math.floor(Math.random() * 25) - 12; // -12 to +12
-        const val = Math.max(10, Math.min(150, last + jitter));
-        next.push(val);
-        return next;
-      });
-    }, 2000);
-    return () => clearInterval(interval);
-  }, []);
+    setNetworkTraffic(prev => {
+      const next = [...prev, trafficMbps];
+      return next.length > 30 ? next.slice(next.length - 30) : next;
+    });
+  }, [trafficMbps]);
 
   const triggerManualRefresh = () => {
     setIsRefreshing(true);
+    onRefresh?.();
     setTimeout(() => setIsRefreshing(false), 800);
   };
 
@@ -61,6 +63,10 @@ export default function DashboardOverview({
   const maxTrafficVal = Math.max(...networkTraffic, 100);
 
   const getPointsStr = () => {
+    if (networkTraffic.length < 2) {
+      const y = svgHeight - padding;
+      return `${padding},${y} ${svgWidth - padding},${y}`;
+    }
     return networkTraffic.map((val, idx) => {
       const x = padding + (idx / (networkTraffic.length - 1)) * (svgWidth - padding * 2);
       const y = svgHeight - padding - (val / maxTrafficVal) * (svgHeight - padding * 2);
@@ -93,7 +99,7 @@ export default function DashboardOverview({
             Refresh Nodes
           </button>
           <div className="text-[10px] bg-[#16161e] text-[#a9b1d6] border border-[#24283b] px-3 py-1.5 rounded font-mono">
-            HOST: <span className="text-[#7aa2f7]">192.168.1.15</span> (Win11)
+            HOST: <span className="text-[#7aa2f7]">{(hostname || "local").toUpperCase()}</span>
           </div>
         </div>
       </div>
@@ -143,7 +149,12 @@ export default function DashboardOverview({
             </div>
             <div className="flex items-center gap-1 text-[10px] text-[#7aa2f7]">
               <Wifi className="w-3 h-3" />
-              Range: 192.168.1.0/24
+              Range: {(() => {
+                const ip = devices[0]?.ip;
+                if (!ip) return "Unknown subnet";
+                const parts = ip.split(".");
+                return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+              })()}
             </div>
           </div>
           <div className="p-2 rounded bg-[#16161e] text-[#7aa2f7] border border-[#24283b]">
@@ -156,12 +167,12 @@ export default function DashboardOverview({
           <div className="space-y-0.5">
             <span className="text-[10px] font-bold text-[#565f89] uppercase tracking-wider">System CPU Load</span>
             <div className="flex items-baseline gap-0.5">
-              <span className="text-2xl font-black text-slate-100">38%</span>
+              <span className="text-2xl font-black text-slate-100">{loadPercent}%</span>
               <span className="text-xs font-semibold text-[#565f89]">Core Avg</span>
             </div>
             {/* Health status bar */}
             <div className="w-24 bg-[#16161e] h-1 rounded overflow-hidden mt-1.5">
-              <div className="bg-[#7aa2f7] h-full" style={{ width: "38%" }}></div>
+              <div className="bg-[#7aa2f7] h-full" style={{ width: `${loadPercent}%` }}></div>
             </div>
           </div>
           <div className="p-2 rounded bg-[#16161e] text-[#bb9af7] border border-[#24283b]">

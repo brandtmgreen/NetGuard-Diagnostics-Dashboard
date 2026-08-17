@@ -26,7 +26,7 @@ interface WiresharkConsoleProps {
 }
 
 export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatReport }: WiresharkConsoleProps) {
-  const [interfaceName, setInterfaceName] = useState("eth0");
+  const [interfaceName, setInterfaceName] = useState("");
   const [filterStr, setFilterStr] = useState("");
   const [isCapturing, setIsCapturing] = useState(false);
   const [packets, setPackets] = useState<CapturedPacket[]>([]);
@@ -39,11 +39,29 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
   const packetsStreamRef = useRef<CapturedPacket[]>([]);
   const streamTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const interfaces = [
-    { name: "eth0", ip: "192.168.1.15", type: "Ethernet Physical Interface" },
-    { name: "lo", ip: "127.0.0.1", type: "Local Loopback Socket" },
-    { name: "wlan0", ip: "192.168.1.16", type: "Wireless 802.11 NIC" }
-  ];
+  const [interfaces, setInterfaces] = useState<Array<{ name: string; ip: string; type: string }>>([]);
+
+  // Load the real host network interface list
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/network/interfaces");
+        const data = await res.json();
+        if (data?.success && Array.isArray(data.interfaces)) {
+          const mapped = data.interfaces.map((i: any) => ({
+            name: i.interfaceName,
+            ip: i.address,
+            type: i.internal ? "Local Loopback Interface" : `${i.family} Network Interface`
+          }));
+          setInterfaces(mapped);
+          const primary = mapped.find((i: any) => !i.type.includes("Loopback")) || mapped[0];
+          if (primary) setInterfaceName(primary.name);
+        }
+      } catch (err) {
+        console.error("Failed to load network interfaces:", err);
+      }
+    })();
+  }, []);
 
   // Stop capturing on unmount
   useEffect(() => {
