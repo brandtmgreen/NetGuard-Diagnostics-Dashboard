@@ -5,6 +5,7 @@ const { app, BrowserWindow, dialog } = require("electron");
 const path = require("path");
 const { fork } = require("child_process");
 const http = require("http");
+const fs = require("fs");
 
 let serverProcess = null;
 let mainWindow = null;
@@ -51,7 +52,7 @@ async function waitForServer() {
 function spawnServer() {
   const serverPath = path.join(__dirname, "dist", "server.cjs");
 
-  if (!require("fs").existsSync(serverPath)) {
+  if (!fs.existsSync(serverPath)) {
     console.error(`[FATAL] Server executable not found at: ${serverPath}`);
     console.error("[FATAL] Did you run 'npm run build' before launching?");
     dialog.showErrorBox(
