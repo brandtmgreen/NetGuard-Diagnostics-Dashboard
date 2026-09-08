@@ -131,12 +131,12 @@ async function createWindow() {
     title: "NetGuard Diagnostics & Security Control Dashboard",
     backgroundColor: "#0b0c0f",
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "assets", "icon.png"), // Optional: add icon
+    icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      preload: path.join(__dirname, "preload.cjs"), // Optional: add preload for IPC
+      preload: path.join(__dirname, "preload.cjs"),
       devTools: process.env.NODE_ENV !== "production",
     },
   });
