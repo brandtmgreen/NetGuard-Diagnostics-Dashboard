@@ -1,0 +1,28 @@
+name: NetGuard Diagnostics
+appId: com.netguard.dashboard
+productName: NetGuard Diagnostics
+directories:
+  buildResources: assets
+  output: dist/electron-builds
+files:
+  - dist/**/*
+  - electron.cjs
+  - package.json
+win:
+  target:
+    - nsis
+    - portable
+  signingHashAlgorithms:
+    - sha256
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  allowMultipleInstallations: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: NetGuard Diagnostics
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+publish: null
