@@ -16,6 +16,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { SuspiciousActivity } from "../types";
+import { safeFetchJson } from "../lib/api";
 
 interface SecurityHeatMapProps {
   suspiciousActivities: SuspiciousActivity[];
@@ -57,37 +58,8 @@ function projectCoords(lat: number, lng: number) {
   return { x, y };
 }
 
-// Target local HQ node in Washington D.C.
-const targetCoords = { lat: 38.9072, lng: -77.0369 };
+const targetCoords = { lat: 37.7749, lng: -122.4194 };
 const targetXY = projectCoords(targetCoords.lat, targetCoords.lng);
-
-const clientIpGeo: Record<string, { country: string; countryCode: string; city: string; lat: number; lng: number }> = {
-  "185.122.204.45": { country: "Russian Federation", countryCode: "RU", city: "Moscow", lat: 55.7558, lng: 37.6173 },
-  "103.22.41.99": { country: "China", countryCode: "CN", city: "Shenzhen", lat: 22.5431, lng: 114.0579 },
-  "198.51.100.12": { country: "United States", countryCode: "US", city: "Chicago", lat: 41.8781, lng: -87.6298 },
-  "172.217.164.110": { country: "United States", countryCode: "US", city: "Mountain View", lat: 37.3861, lng: -122.0839 },
-  "203.0.113.82": { country: "Netherlands", countryCode: "NL", city: "Amsterdam", lat: 52.3676, lng: 4.9041 },
-  "192.168.1.102": { country: "Internal private network", countryCode: "LAN", city: "Local Segment", lat: 38.9072, lng: -77.0369 }
-};
-
-function getClientIpGeo(ip: string) {
-  if (clientIpGeo[ip]) return clientIpGeo[ip];
-  const octets = ip.split(".").map(Number);
-  const isLocal = ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.16.");
-  if (isLocal) {
-    return { country: "Internal Private Network", countryCode: "LAN", city: "Local Segment", lat: 38.9072, lng: -77.0369 };
-  }
-  const index = octets.length === 4 && !isNaN(octets[0]) ? octets[0] % 6 : 0;
-  const list = [
-    { country: "United Kingdom", countryCode: "GB", city: "London", lat: 51.5074, lng: -0.1278 },
-    { country: "Germany", countryCode: "DE", city: "Frankfurt", lat: 50.1109, lng: 8.6821 },
-    { country: "Japan", countryCode: "JP", city: "Tokyo", lat: 35.6762, lng: 139.6503 },
-    { country: "Brazil", countryCode: "BR", city: "Sao Paulo", lat: -23.5505, lng: -46.6333 },
-    { country: "South Africa", countryCode: "ZA", city: "Johannesburg", lat: -26.2041, lng: 28.0473 },
-    { country: "Australia", countryCode: "AU", city: "Sydney", lat: -33.8688, lng: 151.2093 }
-  ];
-  return list[index];
-}
 
 export default function SecurityHeatMap({
   suspiciousActivities,
@@ -99,12 +71,19 @@ export default function SecurityHeatMap({
   const [activeTab, setActiveTab] = useState<"whois" | "traceroute" | "reputation">("reputation");
   const [hoveredThreat, setHoveredThreat] = useState<any>(null);
 
-  // Filter for active threats with geographical coordinates
+  // Filter for active threats with real backend-resolved geographical coordinates
   const activeThreats = suspiciousActivities
     .filter(a => a.status === "active")
     .map(activity => {
-      const geo = getClientIpGeo(activity.srcIp);
-      const xy = projectCoords(geo.lat, geo.lng);
+      const geo = activity.geo || {
+        lat: 0,
+        lng: 0,
+        city: "Unresolved",
+        country: "Unresolved",
+        countryCode: "--"
+      };
+      const hasValidCoords = typeof geo.lat === "number" && typeof geo.lng === "number" && (geo.lat !== 0 || geo.lng !== 0);
+      const xy = hasValidCoords ? projectCoords(geo.lat, geo.lng) : null;
       return {
         ...activity,
         geo,
@@ -112,11 +91,10 @@ export default function SecurityHeatMap({
       };
     });
 
-  // Auto-select first active public IP on load or changes
+  // Auto-select first active IP on load or changes
   useEffect(() => {
-    const activePublicThreats = activeThreats.filter(t => !t.srcIp.startsWith("192.168."));
-    if (activePublicThreats.length > 0 && !selectedIp) {
-      handleLookupIp(activePublicThreats[0].srcIp);
+    if (activeThreats.length > 0 && !selectedIp) {
+      handleLookupIp(activeThreats[0].srcIp);
     }
   }, [suspiciousActivities]);
 
@@ -124,13 +102,12 @@ export default function SecurityHeatMap({
     setSelectedIp(ip);
     setLoadingIntel(true);
     try {
-      const res = await fetch("/api/security/ip-lookup", {
+      const data = await safeFetchJson<any>("/api/security/ip-lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ip })
       });
-      if (res.ok) {
-        const data = await res.json();
+      if (data) {
         setIntel(data);
       }
     } catch (err) {
@@ -234,7 +211,7 @@ export default function SecurityHeatMap({
           <div className="w-full h-full flex items-center justify-center py-2 relative overflow-hidden">
             
             {/* Hover Tooltip Overlay */}
-            {hoveredThreat && (
+            {hoveredThreat && hoveredThreat.xy && (
               <div 
                 className="absolute z-20 bg-[#16161e] border border-[#f7768e]/30 p-2 rounded text-[10px] font-mono shadow-2xl space-y-1 pointer-events-none"
                 style={{
@@ -288,8 +265,7 @@ export default function SecurityHeatMap({
 
               {/* Attack Streams & Connection lines */}
               {idsEnabled && activeThreats.map((threat) => {
-                // Ignore local devices or empty coords
-                if (threat.srcIp.startsWith("192.168.") || threat.xy.x === targetXY.x) return null;
+                if (!threat.xy || threat.xy.x === targetXY.x) return null;
                 const pathStr = getCurvePath(threat.xy.x, threat.xy.y, targetXY.x, targetXY.y);
                 const isSelected = selectedIp === threat.srcIp;
                 
@@ -299,7 +275,7 @@ export default function SecurityHeatMap({
                     <path 
                       d={pathStr} 
                       fill="none" 
-                      stroke={isSelected ? "#f7768e" : "#f7768e"} 
+                      stroke="#f7768e" 
                       strokeWidth={isSelected ? 1.5 : 0.8} 
                       opacity={isSelected ? 0.6 : 0.25}
                     />
@@ -325,8 +301,7 @@ export default function SecurityHeatMap({
 
               {/* Attacker Active Heat Coordinates */}
               {idsEnabled && activeThreats.map((threat) => {
-                const isLocal = threat.srcIp.startsWith("192.168.");
-                if (isLocal) return null; // local isn't mapped geographically on world map
+                if (!threat.xy) return null;
                 const isSelected = selectedIp === threat.srcIp;
 
                 return (

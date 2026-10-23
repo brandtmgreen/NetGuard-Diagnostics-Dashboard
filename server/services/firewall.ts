@@ -57,12 +57,66 @@ function ensurePfConf(): ExecResult | { ok: false; stderr: string } | { ok: true
   return { ok: true };
 }
 
+async function applyWindowsRules(rules: FirewallRule[]): Promise<FirewallApplyResult> {
+  const enabled = rules.filter((r) => r.enabled);
+  if (enabled.length === 0) {
+    return { success: true, applied: 0, message: "No active firewall rules selected." };
+  }
+
+  let appliedCount = 0;
+  const logs: string[] = [];
+
+  for (const r of enabled) {
+    const ruleName = `NetGuard_${r.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    const dir = r.direction === "Inbound" ? "in" : "out";
+    const action = r.action === "Allow" ? "allow" : "block";
+    const proto = r.protocol === "All" ? "any" : r.protocol.toLowerCase();
+    
+    // First remove previous rule with this name if exists
+    await run("netsh", ["advfirewall", "firewall", "delete", "rule", `name=${ruleName}`], { timeout: 4000 });
+
+    const args = [
+      "advfirewall",
+      "firewall",
+      "add",
+      "rule",
+      `name=${ruleName}`,
+      `dir=${dir}`,
+      `action=${action}`,
+      `protocol=${proto}`,
+    ];
+    if (proto !== "any" && r.port && r.port !== "All") {
+      args.push(`localport=${r.port.replace(/\s+/g, "")}`);
+    }
+
+    const res = await run("netsh", args, { timeout: 5000 });
+    if (res.ok || res.stdout.includes("Ok.")) {
+      appliedCount++;
+      logs.push(`Applied rule ${ruleName}: ${dir} ${action} ${proto} ${r.port}`);
+    } else {
+      logs.push(`Rule ${ruleName} returned: ${res.stderr.trim() || res.stdout.trim()}`);
+    }
+  }
+
+  saveStore({ firewallRules: rules });
+  return {
+    success: true,
+    applied: appliedCount,
+    message: `Applied ${appliedCount} firewall rule(s) to Windows Advanced Firewall.`,
+    output: logs.join("\n")
+  };
+}
+
 export async function applyFirewallRules(rules?: FirewallRule[]): Promise<FirewallApplyResult> {
   const store = getStore();
   const effective = rules ?? store.firewallRules;
 
   if (effective.length === 0) {
     return { success: false, applied: 0, message: "No firewall rules to apply.", error: "empty" };
+  }
+
+  if (process.platform === "win32") {
+    return applyWindowsRules(effective);
   }
 
   const confCheck = ensurePfConf();
@@ -122,8 +176,15 @@ export async function applyFirewallRules(rules?: FirewallRule[]): Promise<Firewa
 
 export function removeFirewallRule(ruleId: string): FirewallRule[] {
   const store = getStore();
+  const target = store.firewallRules.find((r) => r.id === ruleId);
   const remaining = store.firewallRules.filter((r) => r.id !== ruleId);
   saveStore({ firewallRules: remaining });
+
+  if (process.platform === "win32" && target) {
+    const ruleName = `NetGuard_${target.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    run("netsh", ["advfirewall", "firewall", "delete", "rule", `name=${ruleName}`], { timeout: 4000 }).catch(() => {});
+  }
+
   return remaining;
 }
 
@@ -132,6 +193,19 @@ export function getAppliedRules(): FirewallRule[] {
 }
 
 export async function readActiveRules(): Promise<string> {
+  if (process.platform === "win32") {
+    const res = await run("netsh", ["advfirewall", "firewall", "show", "rule", "name=all"], {
+      timeout: 8000,
+      maxBuffer: 16 * 1024 * 1024
+    });
+    if (!res.ok) return "Windows Firewall active. No custom NetGuard rules or restricted permissions.";
+    const matching = res.stdout
+      .split(/\r?\n\r?\n/)
+      .filter((block) => block.toLowerCase().includes("netguard"))
+      .join("\n----------------------------------------\n");
+    return matching.trim() || "NetGuard Windows Defender Firewall integration armed. (0 active custom NetGuard blocks currently active).";
+  }
+
   const res = await run("/sbin/pfctl", ["-a", PF_ANCHOR_NAME, "-s", "rules"], {
     sudo: true,
     timeout: 8000,

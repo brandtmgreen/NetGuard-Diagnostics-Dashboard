@@ -20,6 +20,7 @@ import {
   Link
 } from "lucide-react";
 import { PlannerTask, Device } from "../types";
+import WindowCard from "./WindowCard";
 
 interface TaskPlannerProps {
   tasks: PlannerTask[];
@@ -216,51 +217,59 @@ export default function TaskPlanner({
       </div>
 
       {/* Aggregate Planner Load */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-[#1a1b26] border border-[#24283b] p-3 rounded flex flex-col justify-between">
-          <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Total Scheduled</span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-black text-slate-100">{tasks.length}</span>
-            <span className="text-[10px] text-[#565f89]">actions</span>
+      <WindowCard
+        id="planner-summary-metrics"
+        title="Remediation Queue Summary"
+        icon={<CheckCircle className="w-3.5 h-3.5 text-[#9ece6a]" />}
+        resizable={false}
+      >
+        <div className="p-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-[#16161e] border border-[#24283b] p-3 rounded flex flex-col justify-between">
+            <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Total Scheduled</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-black text-slate-100">{tasks.length}</span>
+              <span className="text-[10px] text-[#565f89]">actions</span>
+            </div>
+          </div>
+          <div className="bg-[#16161e] border border-[#24283b] p-3 rounded flex flex-col justify-between">
+            <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Pending Tasks</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-black text-[#e0af68]">{tasks.filter(t => !t.completed).length}</span>
+              <span className="text-[10px] text-[#565f89]">active</span>
+            </div>
+          </div>
+          <div className="bg-[#16161e] border border-[#24283b] p-3 rounded flex flex-col justify-between">
+            <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Completed</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-black text-[#9ece6a]">{tasks.filter(t => t.completed).length}</span>
+              <span className="text-[10px] text-[#565f89]">mitigated</span>
+            </div>
+          </div>
+          <div className="bg-[#16161e] border border-[#24283b] p-3 rounded flex flex-col justify-between">
+            <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Critical Failures</span>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-xl font-black text-[#f7768e]">{tasks.filter(t => t.priority === "Critical" && !t.completed).length}</span>
+              <span className="text-[10px] text-[#565f89]">high risk</span>
+            </div>
           </div>
         </div>
-        <div className="bg-[#1a1b26] border border-[#24283b] p-3 rounded flex flex-col justify-between">
-          <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Pending Tasks</span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-black text-[#e0af68]">{tasks.filter(t => !t.completed).length}</span>
-            <span className="text-[10px] text-[#565f89]">active</span>
-          </div>
-        </div>
-        <div className="bg-[#1a1b26] border border-[#24283b] p-3 rounded flex flex-col justify-between">
-          <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Completed</span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-black text-[#9ece6a]">{tasks.filter(t => t.completed).length}</span>
-            <span className="text-[10px] text-[#565f89]">mitigated</span>
-          </div>
-        </div>
-        <div className="bg-[#1a1b26] border border-[#24283b] p-3 rounded flex flex-col justify-between">
-          <span className="text-[9px] font-bold text-[#565f89] uppercase tracking-wider block">Critical Failures</span>
-          <div className="flex items-baseline gap-1 mt-1">
-            <span className="text-xl font-black text-[#f7768e]">{tasks.filter(t => t.priority === "Critical" && !t.completed).length}</span>
-            <span className="text-[10px] text-[#565f89]">high risk</span>
-          </div>
-        </div>
-      </div>
+      </WindowCard>
 
       {/* Dependency Pipelines Roadmap */}
       {chains.length > 0 && (
-        <div className="bg-[#1a1b26] border border-[#24283b] p-3 rounded.5 space-y-2">
-          <div className="flex items-center gap-1.5 border-b border-[#24283b]/60 pb-1.5">
-            <Workflow className="w-4 h-4 text-[#7aa2f7]" />
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-100 flex items-center gap-2">
-              Active Security Mitigation Pipelines
-              <span className="bg-[#7aa2f7]/10 text-[#7aa2f7] border border-[#7aa2f7]/20 text-[8px] font-mono px-1 rounded uppercase">
-                CHAIN MAPS
-              </span>
-            </h3>
-          </div>
-          
-          <div className="space-y-2.5 overflow-x-auto py-1">
+        <WindowCard
+          id="planner-dependency-chains"
+          title="Active Security Mitigation Pipelines"
+          icon={<Workflow className="w-3.5 h-3.5 text-[#7aa2f7]" />}
+          defaultHeight={150}
+          minHeight={100}
+          badge={
+            <span className="bg-[#7aa2f7]/10 text-[#7aa2f7] border border-[#7aa2f7]/20 text-[8px] font-mono px-1 rounded uppercase">
+              CHAIN MAPS
+            </span>
+          }
+        >
+          <div className="p-3 space-y-2.5 overflow-x-auto">
             {chains.map((chain, chainIdx) => (
               <div key={`chain-${chainIdx}`} className="flex items-center gap-2 min-w-max pb-0.5">
                 <span className="text-[9px] font-mono font-bold bg-[#16161e] px-1.5 py-0.5 rounded text-[#565f89] uppercase border border-[#24283b] select-none shrink-0">
@@ -307,7 +316,7 @@ export default function TaskPlanner({
               </div>
             ))}
           </div>
-        </div>
+        </WindowCard>
       )}
 
       {/* Filter Options */}
@@ -362,7 +371,14 @@ export default function TaskPlanner({
       </div>
 
       {/* Task Grid Cards */}
-      <div className="flex-1 min-h-[250px]">
+      <WindowCard
+        id="planner-tasks-grid"
+        title={`Scheduled Remediation Tasks (${filteredTasks.length})`}
+        icon={<SlidersHorizontal className="w-3.5 h-3.5 text-[#7aa2f7]" />}
+        defaultHeight={420}
+        minHeight={220}
+      >
+        <div className="p-3 overflow-y-auto flex-1">
         {filteredTasks.length === 0 ? (
           <div className="h-full min-h-[200px] border border-dashed border-[#24283b] rounded flex flex-col items-center justify-center text-[#565f89] text-xs py-8 space-y-1.5">
             <CheckCircle className="w-8 h-8 text-[#565f89]" />
@@ -502,7 +518,8 @@ export default function TaskPlanner({
           })}
           </div>
         )}
-      </div>
+        </div>
+      </WindowCard>
 
       {/* Create / Edit Modal Dialog */}
       {isModalOpen && (

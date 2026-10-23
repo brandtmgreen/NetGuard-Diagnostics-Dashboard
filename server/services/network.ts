@@ -1,4 +1,5 @@
 import os from "os";
+import fs from "fs";
 import dns from "dns";
 import { isPrivateIp, run } from "../lib/exec";
 
@@ -200,9 +201,18 @@ async function reverseLookup(ip: string): Promise<string | null> {
 
 function parseArpTable(output: string): Map<string, string> {
   const map = new Map<string, string>();
-  for (const raw of output.split("\n")) {
-    const m = raw.match(/^\s*\S*\s*\(([\d.]+)\)\s+at\s+([0-9a-fA-F:]+)/);
-    if (m) map.set(m[1], m[2].toUpperCase());
+  for (const raw of output.split(/\r?\n/)) {
+    // Unix format: ? (192.168.1.1) at 00:11:22:33:44:55 on en0
+    const mUnix = raw.match(/^\s*\S*\s*\(([\d.]+)\)\s+at\s+([0-9a-fA-F:-]+)/);
+    if (mUnix) {
+      map.set(mUnix[1], mUnix[2].toUpperCase().replace(/-/g, ":"));
+      continue;
+    }
+    // Windows format: 192.168.1.1   00-11-22-33-44-55   dynamic
+    const mWin = raw.match(/([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\s+([0-9a-fA-F]{2}[-:][0-9a-fA-F]{2}[-:][0-9a-fA-F]{2}[-:][0-9a-fA-F]{2}[-:][0-9a-fA-F]{2}[-:][0-9a-fA-F]{2})/);
+    if (mWin) {
+      map.set(mWin[1], mWin[2].toUpperCase().replace(/-/g, ":"));
+    }
   }
   return map;
 }
@@ -225,10 +235,15 @@ async function pingSweep(baseIp: string, prefix: number): Promise<string[]> {
   async function worker() {
     while (idx < hosts.length) {
       const ip = hosts[idx++];
-      const res = await run("/sbin/ping", ["-c", "1", "-W", "450", "-t", "64", "-q", ip], {
+      const pingArgs = process.platform === "win32"
+        ? ["-n", "1", "-w", "450", ip]
+        : ["-c", "1", "-W", "1", "-t", "64", "-q", ip];
+      const res = await run("ping", pingArgs, {
         timeout: 1500,
       });
-      if (res.ok || res.stdout.includes("1 packets received")) responded.push(ip);
+      if (res.ok || res.stdout.includes("1 packets received") || res.stdout.includes("Received = 1")) {
+        responded.push(ip);
+      }
     }
   }
 
@@ -257,6 +272,26 @@ async function resolveDevice(ip: string, mac: string | undefined): Promise<Disco
   };
 }
 
+function readLinuxProcArp(): Map<string, string> {
+  const map = new Map<string, string>();
+  try {
+    if (fs.existsSync("/proc/net/arp")) {
+      const content = fs.readFileSync("/proc/net/arp", "utf8");
+      for (const line of content.split(/\r?\n/).slice(1)) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 4 && /^\d+\.\d+\.\d+\.\d+$/.test(parts[0])) {
+          const ip = parts[0];
+          const mac = parts[3].toUpperCase();
+          if (mac && mac !== "00:00:00:00:00:00") {
+            map.set(ip, mac);
+          }
+        }
+      }
+    }
+  } catch {}
+  return map;
+}
+
 export async function discoverDevices(): Promise<{
   hostname: string;
   platform: string;
@@ -273,10 +308,21 @@ export async function discoverDevices(): Promise<{
     responded.forEach((ip) => sweptIps.add(ip));
   }
 
-  const arpRes = await run("/usr/sbin/arp", ["-a"], { timeout: 8000 });
+  const arpRes = await run("arp", ["-a"], { timeout: 8000 });
   const arpTable = parseArpTable(arpRes.stdout);
+  for (const [ip, mac] of readLinuxProcArp()) {
+    if (!arpTable.has(ip)) arpTable.set(ip, mac);
+  }
+
   const seen = new Set<string>();
   const candidates: Array<{ ip: string; mac: string | undefined }> = [];
+
+  for (const iface of getInterfaces()) {
+    if (!iface.internal && iface.address && !seen.has(iface.address)) {
+      seen.add(iface.address);
+      candidates.push({ ip: iface.address, mac: iface.mac ? iface.mac.toUpperCase() : undefined });
+    }
+  }
 
   for (const ip of sweptIps) {
     if (seen.has(ip)) continue;
@@ -285,7 +331,7 @@ export async function discoverDevices(): Promise<{
   }
 
   for (const [ip, mac] of arpTable) {
-    if (seen.has(ip) || isPrivateIp(ip)) continue;
+    if (seen.has(ip)) continue;
     const firstOctet = parseInt(ip.split(".")[0], 10);
     if (firstOctet >= 224 && firstOctet <= 239) continue; // multicast
     seen.add(ip);
@@ -339,11 +385,62 @@ function parseLsofConnections(output: string): Map<string, LiveConnection> {
   return map;
 }
 
+function parseWindowsConnections(output: string): Map<string, LiveConnection> {
+  const map = new Map<string, LiveConnection>();
+  for (const raw of output.split(/\r?\n/)) {
+    const parts = raw.trim().split(/\s+/);
+    if (parts.length < 4) continue;
+    const proto = parts[0].toUpperCase();
+    if (proto !== "TCP" && proto !== "UDP") continue;
+    const localAddr = parts[1];
+    const foreignAddr = parts[2];
+    const state = proto === "TCP" ? (parts[3] || "ACTIVE") : "ACTIVE";
+    const pid = proto === "TCP" ? (parts[4] || "0") : (parts[3] || "0");
+
+    const useLocal = !foreignAddr || foreignAddr.startsWith("0.0.0.0") || foreignAddr.startsWith("*:") || foreignAddr.startsWith("[::]");
+    const addrToParse = useLocal ? localAddr : foreignAddr;
+    const colonIdx = addrToParse.lastIndexOf(":");
+    if (colonIdx === -1) continue;
+    const rawIp = addrToParse.substring(0, colonIdx).replace(/[\[\]]/g, "");
+    const ip = rawIp === "0.0.0.0" || rawIp === "::" || rawIp === "*" ? "127.0.0.1" : rawIp;
+    const port = parseInt(addrToParse.substring(colonIdx + 1), 10);
+    if (!ip || Number.isNaN(port) || port === 0) continue;
+
+    const key = `${ip}:${port}:${proto}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.count++;
+      continue;
+    }
+    map.set(key, {
+      ip,
+      port,
+      proto,
+      process: `PID:${pid}`,
+      state,
+      direction: useLocal || state === "LISTENING" ? "inbound" : "outbound",
+      count: 1,
+    });
+  }
+  return map;
+}
+
 export async function getNeighbors(): Promise<DiscoveredDevice[]> {
-  const arpRes = await run("/usr/sbin/arp", ["-a"], { timeout: 8000 });
+  const arpRes = await run("arp", ["-a"], { timeout: 8000 });
   const arpTable = parseArpTable(arpRes.stdout);
+  for (const [ip, mac] of readLinuxProcArp()) {
+    if (!arpTable.has(ip)) arpTable.set(ip, mac);
+  }
+
   const seen = new Set<string>();
   const candidates: Array<{ ip: string; mac: string | undefined }> = [];
+
+  for (const iface of getInterfaces()) {
+    if (!iface.internal && iface.address && !seen.has(iface.address)) {
+      seen.add(iface.address);
+      candidates.push({ ip: iface.address, mac: iface.mac ? iface.mac.toUpperCase() : undefined });
+    }
+  }
 
   for (const [ip, mac] of arpTable) {
     if (seen.has(ip) || !isPrivateIp(ip)) continue;
@@ -355,16 +452,176 @@ export async function getNeighbors(): Promise<DiscoveredDevice[]> {
   return devices.sort((a, b) => a.ip.localeCompare(b.ip, undefined, { numeric: true }));
 }
 
+function parseSsConnections(output: string): Map<string, LiveConnection> {
+  const map = new Map<string, LiveConnection>();
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("Netid") || line.startsWith("State")) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 5) continue;
+    const hasNetid = /^(tcp|udp)/i.test(parts[0]);
+    const proto = hasNetid ? parts[0].toUpperCase() : "TCP";
+    const state = hasNetid ? parts[1] : parts[0];
+    const localAddr = hasNetid ? parts[4] : parts[3];
+    const peerAddr = hasNetid ? parts[5] : parts[4];
+    const procPart = parts.slice(hasNetid ? 6 : 5).join(" ");
+    if (!peerAddr) continue;
+
+    const targetAddr = peerAddr.includes("*") || peerAddr.startsWith("0.0.0.0") || peerAddr.startsWith("[::]") ? localAddr : peerAddr;
+    if (!targetAddr) continue;
+    const colonIdx = targetAddr.lastIndexOf(":");
+    if (colonIdx === -1) continue;
+    const ip = targetAddr.substring(0, colonIdx).replace(/[\[\]]/g, "") || "127.0.0.1";
+    const port = parseInt(targetAddr.substring(colonIdx + 1), 10);
+    if (Number.isNaN(port) || port === 0) continue;
+
+    const procMatch = procPart.match(/"([^"]+)"/);
+    const pidMatch = procPart.match(/pid=(\d+)/);
+    const processName = procMatch ? procMatch[1] : pidMatch ? `PID:${pidMatch[1]}` : "kernel/socket";
+    const direction: "outbound" | "inbound" = state === "LISTEN" ? "inbound" : "outbound";
+
+    const key = `${ip}:${port}:${proto}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.count++;
+      continue;
+    }
+    map.set(key, {
+      ip: ip === "*" || ip === "0.0.0.0" || ip === "::" ? "127.0.0.1" : ip,
+      port,
+      proto: proto.startsWith("UDP") ? "UDP" : "TCP",
+      process: processName,
+      state,
+      direction,
+      count: 1,
+    });
+  }
+  return map;
+}
+
+const TCP_STATES: Record<string, string> = {
+  "01": "ESTABLISHED",
+  "02": "SYN_SENT",
+  "03": "SYN_RECV",
+  "04": "FIN_WAIT1",
+  "05": "FIN_WAIT2",
+  "06": "TIME_WAIT",
+  "07": "CLOSE",
+  "08": "CLOSE_WAIT",
+  "09": "LAST_ACK",
+  "0A": "LISTEN",
+  "0B": "CLOSING",
+};
+
+function decodeHexIpPort(hexAddr: string): { ip: string; port: number } | null {
+  const [ipHex, portHex] = hexAddr.split(":");
+  if (!ipHex || !portHex || ipHex.length !== 8) return null;
+  const port = parseInt(portHex, 16);
+  if (Number.isNaN(port) || port === 0) return null;
+  const b1 = parseInt(ipHex.slice(6, 8), 16);
+  const b2 = parseInt(ipHex.slice(4, 6), 16);
+  const b3 = parseInt(ipHex.slice(2, 4), 16);
+  const b4 = parseInt(ipHex.slice(0, 2), 16);
+  return { ip: `${b1}.${b2}.${b3}.${b4}`, port };
+}
+
+function readProcNetSockets(localIpFallback: string): LiveConnection[] {
+  const map = new Map<string, LiveConnection>();
+  const files: Array<{ path: string; proto: "TCP" | "UDP" }> = [
+    { path: "/proc/net/tcp", proto: "TCP" },
+    { path: "/proc/net/udp", proto: "UDP" },
+  ];
+
+  for (const f of files) {
+    try {
+      if (!fs.existsSync(f.path)) continue;
+      const raw = fs.readFileSync(f.path, "utf8");
+      for (const line of raw.split(/\r?\n/).slice(1)) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 10) continue;
+        const local = decodeHexIpPort(parts[1]);
+        const remote = decodeHexIpPort(parts[2]);
+        const stateHex = (parts[3] || "").toUpperCase();
+        const uid = parts[7] || "0";
+        const inode = parts[9] || "0";
+        const state = TCP_STATES[stateHex] || "ACTIVE";
+
+        const isRemoteActive = remote && remote.ip !== "0.0.0.0" && remote.port > 0;
+        const endpoint = isRemoteActive ? remote! : local;
+        if (!endpoint) continue;
+
+        const resolvedIp = endpoint.ip === "0.0.0.0" ? localIpFallback : endpoint.ip;
+        const direction: "outbound" | "inbound" = isRemoteActive && state !== "LISTEN" ? "outbound" : "inbound";
+        const key = `${resolvedIp}:${endpoint.port}:${f.proto}`;
+        const existing = map.get(key);
+        if (existing) {
+          existing.count++;
+          continue;
+        }
+        map.set(key, {
+          ip: resolvedIp,
+          port: endpoint.port,
+          proto: f.proto,
+          process: `uid:${uid}/inode:${inode}`,
+          state,
+          direction,
+          count: 1,
+        });
+      }
+    } catch {}
+  }
+
+  return Array.from(map.values());
+}
+
 export async function getLiveConnections(): Promise<LiveConnection[]> {
-  const res = await run("/usr/sbin/lsof", ["-i", "-n", "-P", "-l"], {
+  if (process.platform === "win32") {
+    const res = await run("netstat", ["-ano"], {
+      timeout: 8000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (!res.ok) return [];
+    const allConns = Array.from(parseWindowsConnections(res.stdout).values());
+    const external = allConns.filter((c) => !isPrivateIp(c.ip));
+    const selected = external.length > 0 ? [...external, ...allConns.filter((c) => isPrivateIp(c.ip))] : allConns;
+    return selected
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 120);
+  }
+
+  const res = await run("lsof", ["-i", "-n", "-P", "-l"], {
     timeout: 10000,
     maxBuffer: 16 * 1024 * 1024,
   });
-  if (!res.ok) return [];
+  if (res.ok && res.stdout.trim()) {
+    const allConns = Array.from(parseLsofConnections(res.stdout).values());
+    const external = allConns.filter((c) => !isPrivateIp(c.ip) && c.ip !== "*");
+    const selected = external.length > 0 ? [...external, ...allConns.filter((c) => isPrivateIp(c.ip) && c.ip !== "*")] : allConns.filter((c) => c.ip !== "*");
+    if (selected.length > 0) {
+      return selected.sort((a, b) => b.count - a.count).slice(0, 120);
+    }
+  }
 
-  const conns = Array.from(parseLsofConnections(res.stdout).values());
-  return conns
-    .filter((c) => !isPrivateIp(c.ip) && c.ip !== "*")
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 120);
+  const ssRes = await run("ss", ["-tunap"], {
+    timeout: 6000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (ssRes.ok && ssRes.stdout.trim()) {
+    const conns = Array.from(parseSsConnections(ssRes.stdout).values());
+    if (conns.length > 0) {
+      return conns.sort((a, b) => b.count - a.count).slice(0, 120);
+    }
+  }
+
+  const localIp = getInterfaces().find((i) => !i.internal)?.address || "127.0.0.1";
+  const procConns = readProcNetSockets(localIp);
+  if (procConns.length > 0) {
+    return procConns.sort((a, b) => b.count - a.count).slice(0, 120);
+  }
+
+  return [];
 }
+
+export const listLiveConnections = getLiveConnections;
+
+

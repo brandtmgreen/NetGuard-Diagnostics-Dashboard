@@ -8,6 +8,17 @@ import type {
   ThreatLog,
 } from "../../src/types";
 
+export interface StoredMinuteRecord {
+  minuteTimestamp: number;
+  cpuSum: number;
+  cpuPeak: number;
+  ramSum: number;
+  ramPeak: number;
+  loadAvg1m: number;
+  coreLoadsSum: number[];
+  sampleCount: number;
+}
+
 export interface StoreShape {
   threatReports: ThreatResponseReport[];
   firewallRules: FirewallRule[];
@@ -15,6 +26,7 @@ export interface StoreShape {
   alerts: SystemAlert[];
   threatLogs: ThreatLog[];
   securityScore: number;
+  resourceHistory?: Record<string, StoredMinuteRecord>;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -27,6 +39,7 @@ const EMPTY: StoreShape = {
   alerts: [],
   threatLogs: [],
   securityScore: 100,
+  resourceHistory: {},
 };
 
 let cache: StoreShape | null = null;

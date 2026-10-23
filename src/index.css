@@ -1,6 +1,5 @@
-@import "tailwindcss";
-
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Press+Start+2P&family=VT323&family=Share+Tech+Mono&display=swap');
+@import "tailwindcss";
 
 /* CSS ROOT THEME VARIABLES */
 :root, [data-theme="dark"] {

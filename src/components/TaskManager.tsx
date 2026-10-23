@@ -30,11 +30,14 @@ import {
   ShieldAlert
 } from "lucide-react";
 import { Process } from "../types";
+import WindowCard from "./WindowCard";
 
 interface TaskManagerProps {
   processes: Process[];
   onEndTask: (pid: number) => void;
   onSpawnTask: (parentPid?: number) => void;
+  cpuCount?: number;
+  totalMemBytes?: number;
 }
 
 type SortField = "name" | "pid" | "cpu" | "memory" | "disk" | "network";
@@ -54,119 +57,12 @@ interface AppMetadata {
   processNames: string[];
 }
 
-const APPS_METADATA: AppMetadata[] = [
-  {
-    id: "chrome",
-    name: "Google Chrome Browser",
-    description: "Enterprise multi-tab web browser and secure sandbox runtime environment.",
-    publisher: "Google LLC",
-    initiator: "Admin_David",
-    installedDate: "2026-01-15",
-    installedMethod: "ChromeSetup.msi (Enterprise Active Directory GPO)",
-    initializedDate: "2026-07-07 07:05:10",
-    initializedMethod: "Desktop Shortcut double-click & user shell initialization",
-    iconColor: "text-[#7aa2f7]",
-    processNames: ["chrome_isolated.exe", "msedge_isolated.exe"]
-  },
-  {
-    id: "docker",
-    name: "Docker Desktop Service",
-    description: "Container virtualization host, hypervisor manager, and local Kubernetes engine.",
-    publisher: "Docker Inc.",
-    initiator: "SYSTEM",
-    installedDate: "2025-11-20",
-    installedMethod: "Chocolatey Package Manager (choco install docker-desktop)",
-    initializedDate: "2026-07-07 06:12:05",
-    initializedMethod: "Windows Service Control Manager daemon launch (Auto-Start)",
-    iconColor: "text-[#7bc5e3]",
-    processNames: ["docker_engine.service", "dockerd.exe"]
-  },
-  {
-    id: "netguard",
-    name: "NetGuard Cyber Security Suite",
-    description: "Endpoint threat detection, live socket inspection, and deep packet analytics engine.",
-    publisher: "NetGuard Corp.",
-    initiator: "SYSTEM",
-    installedDate: "2026-02-10",
-    installedMethod: "Secure NetGuard Deployer (Active GPO MSI)",
-    initializedDate: "2026-07-07 05:00:00",
-    initializedMethod: "Local Machine Run Registry Key (HKLM\\Software\\Microsoft\\Windows)",
-    iconColor: "text-[#f7768e]",
-    processNames: ["security_scan.bin", "netguard_agent.exe"]
-  },
-  {
-    id: "nodejs",
-    name: "Node.js Server Runtime",
-    description: "V8 JavaScript server engine hosting local admin command proxy services.",
-    publisher: "Node.js Foundation",
-    initiator: "DevOps_Sarah",
-    installedDate: "2026-05-04",
-    installedMethod: "Node Version Manager (nvm install 20.11.0)",
-    initializedDate: "2026-07-07 07:15:33",
-    initializedMethod: "DevOps PowerShell administrative terminal (npm run start)",
-    iconColor: "text-[#9ece6a]",
-    processNames: ["node_runtime.exe", "npm_watch.exe", "npm_daemon.exe"]
-  },
-  {
-    id: "explorer",
-    name: "Windows Explorer Shell",
-    description: "Graphical file explorer, desktop session broker, and keyboard shortcut listeners.",
-    publisher: "Microsoft Corporation",
-    initiator: "Admin_David",
-    installedDate: "Built-in OS Layer",
-    installedMethod: "Windows OS Base Image deployment (WIM corporate image)",
-    initializedDate: "2026-07-07 06:00:15",
-    initializedMethod: "Winlogon credential authorization user shell session handshake",
-    iconColor: "text-[#e0af68]",
-    processNames: ["explorer.exe"]
-  },
-  {
-    id: "discord",
-    name: "Discord Desktop Client",
-    description: "Enterprise real-time group communication and Rich Presence RPC thread host.",
-    publisher: "Discord Inc.",
-    initiator: "Admin_David",
-    installedDate: "2026-03-22",
-    installedMethod: "DiscordSetup.exe direct manual user install",
-    initializedDate: "2026-07-07 07:20:10",
-    initializedMethod: "User Startup Folder shortcut execution (APPDATA)",
-    iconColor: "text-[#bb9af7]",
-    processNames: ["discord_rpc.exe"]
-  },
-  {
-    id: "spotify",
-    name: "Spotify Background Agent",
-    description: "Lightweight background music agent, media-key hooks, and caching daemon.",
-    publisher: "Spotify AB",
-    initiator: "Admin_David",
-    installedDate: "2026-04-01",
-    installedMethod: "Windows App Store package manifest",
-    initializedDate: "2026-07-07 07:25:00",
-    initializedMethod: "Manual click on Start Menu pinned icon",
-    iconColor: "text-[#9ece6a]",
-    processNames: ["spotify_agent.exe"]
-  },
-  {
-    id: "system_kernel",
-    name: "Windows NT Operating System Kernel",
-    description: "System idle processes, hardware abstraction layer, registry hives, and core drivers.",
-    publisher: "Microsoft Corporation",
-    initiator: "SYSTEM",
-    installedDate: "Built-in OS Core",
-    installedMethod: "OEM Hardware pre-install partition",
-    initializedDate: "2026-07-07 00:00:01",
-    initializedMethod: "Motherboard UEFI ACPI system boot sequence",
-    iconColor: "text-[#a9b1d6]",
-    processNames: ["System Idle Process", "System Kernel Task", "svchost.exe (Local)", "powershell_ssh.exe"]
-  }
-];
-
 interface ProcessTreeNode {
   process: Process;
   children: ProcessTreeNode[];
 }
 
-export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskManagerProps) {
+export default function TaskManager({ processes, onEndTask, onSpawnTask, cpuCount, totalMemBytes }: TaskManagerProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("process-tree");
   const [filterText, setFilterText] = useState("");
   
@@ -176,36 +72,44 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
 
   // Tree view state
-  const [selectedAppId, setSelectedAppId] = useState<string>("chrome");
+  const [selectedAppId, setSelectedAppId] = useState<string>("");
   const [collapsedPids, setCollapsedPids] = useState<Set<number>>(new Set());
 
-  // Determine dynamic apps based on current processes
-  const mappedProcessNames = new Set(APPS_METADATA.flatMap(app => app.processNames));
-  const unmappedActiveProcesses = processes.filter(p => !mappedProcessNames.has(p.name));
+  // Build program groups dynamically from real running processes on the host
+  const dynamicApps: AppMetadata[] = React.useMemo(() => {
+    const groups = new Map<string, Process[]>();
+    for (const p of processes) {
+      const baseName = (p.name.split(/[\\/]/).pop() || p.name).trim();
+      const list = groups.get(baseName) || [];
+      list.push(p);
+      groups.set(baseName, list);
+    }
 
-  const dynamicApps = [...APPS_METADATA];
-  if (unmappedActiveProcesses.length > 0) {
-    // Add virtual app container for unmapped threads so they can be grouped/killed
-    dynamicApps.push({
-      id: "unmapped",
-      name: "Independent Daemon Threads",
-      description: "Uncategorized background tasks, logs, or manually executed CLI command loops.",
-      publisher: "Ad-Hoc / Various Systems",
-      initiator: "Admin_David / SYSTEM",
-      installedDate: "Temporary Cache",
-      installedMethod: "Ad-hoc sandbox executed binary / Local administrator shell",
-      initializedDate: "Dynamic Terminal Session",
-      initializedMethod: "Manual subprocess invocation or custom developer terminal daemon spawn",
-      iconColor: "text-[#a9b1d6]",
-      processNames: unmappedActiveProcesses.map(p => p.name)
+    return Array.from(groups.entries()).map(([baseName, procs]) => {
+      const primary = procs[0];
+      const owner = primary?.publisher || "OS Kernel / System";
+      const pidList = procs.map((x) => x.pid).join(", ");
+      const parentPids = Array.from(new Set(procs.map((x) => x.parentPid).filter((x) => x !== undefined))).join(", ");
+      return {
+        id: `live-app-${baseName}`,
+        name: baseName,
+        description: `Live host executable with ${procs.length} active process instance(s) [PIDs: ${pidList}].`,
+        publisher: owner,
+        initiator: owner,
+        installedDate: "Host OS Binary",
+        installedMethod: `Executable image: ${primary?.name || baseName}`,
+        initializedDate: "Active Runtime Session",
+        initializedMethod: parentPids ? `Spawned by Parent PID(s): ${parentPids}` : "Root / Kernel Process",
+        iconColor: "text-[#7aa2f7]",
+        processNames: Array.from(new Set(procs.map((x) => x.name))),
+      };
     });
-  }
+  }, [processes]);
 
   // Filter logic for Apps Registry View
   const filteredApps = dynamicApps.filter(app => {
     const appProcesses = processes.filter(p => app.processNames.includes(p.name));
     
-    // Search app parameters or its active processes
     const matchesAppMeta = 
       app.name.toLowerCase().includes(filterText.toLowerCase()) ||
       app.description.toLowerCase().includes(filterText.toLowerCase()) ||
@@ -375,7 +279,7 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
   };
 
   const getProcessIcon = (processName: string) => {
-    const matchingApp = APPS_METADATA.find(app => app.processNames.includes(processName));
+    const matchingApp = dynamicApps.find(app => app.processNames.includes(processName));
     if (matchingApp) {
       return getAppIconComponent(matchingApp.id);
     }
@@ -388,8 +292,11 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
     return <Terminal className="w-4 h-4 text-[#7aa2f7]" />;
   };
 
-  const getProcessInitiator = (name: string): string => {
-    const matchingApp = APPS_METADATA.find(app => app.processNames.includes(name));
+  const getProcessInitiator = (proc: Process): string => {
+    if (proc.publisher && !proc.publisher.startsWith("/")) {
+      return proc.publisher;
+    }
+    const matchingApp = dynamicApps.find(app => app.processNames.includes(proc.name));
     return matchingApp ? matchingApp.initiator : "SYSTEM";
   };
 
@@ -458,79 +365,88 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
       </div>
 
       {/* Aggregate Resource Load Header */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {/* CPU */}
-        <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
-            <span>CPU Cluster</span>
-            <Cpu className="w-3.5 h-3.5 text-[#7aa2f7]" />
+      <WindowCard
+        id="taskmgr-resource-load"
+        title="Aggregate Host Cluster Telemetry"
+        icon={<Cpu className="w-3.5 h-3.5 text-[#7aa2f7]" />}
+        resizable={false}
+      >
+        <div className="p-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* CPU */}
+          <div className="bg-[#16161e] border border-[#24283b] rounded p-3 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              <span>CPU Cluster</span>
+              <Cpu className="w-3.5 h-3.5 text-[#7aa2f7]" />
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-black text-slate-100">{totalCpu}%</span>
+              <span className="text-[9px] text-[#565f89]">{cpuCount ? `${cpuCount} Cores` : "Host Cores"}</span>
+            </div>
+            <div className="w-full bg-[#0b0c0f] h-1 rounded overflow-hidden mt-2">
+              <div 
+                className={`h-full transition-all duration-550 ${totalCpu > 80 ? "bg-[#f7768e]" : totalCpu > 55 ? "bg-[#e0af68]" : "bg-[#7aa2f7]"}`} 
+                style={{ width: `${Math.min(100, totalCpu)}%` }}
+              ></div>
+            </div>
           </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-xl font-black text-slate-100">{totalCpu}%</span>
-            <span className="text-[9px] text-[#565f89]">64 Cores</span>
-          </div>
-          <div className="w-full bg-[#16161e] h-1 rounded overflow-hidden mt-2">
-            <div 
-              className={`h-full transition-all duration-550 ${totalCpu > 80 ? "bg-[#f7768e]" : totalCpu > 55 ? "bg-[#e0af68]" : "bg-[#7aa2f7]"}`} 
-              style={{ width: `${Math.min(100, totalCpu)}%` }}
-            ></div>
-          </div>
-        </div>
 
-        {/* Memory */}
-        <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
-            <span>Committed RAM</span>
-            <Activity className="w-3.5 h-3.5 text-[#9ece6a]" />
+          {/* Memory */}
+          <div className="bg-[#16161e] border border-[#24283b] rounded p-3 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              <span>Committed RAM</span>
+              <Activity className="w-3.5 h-3.5 text-[#9ece6a]" />
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-black text-slate-100">{(totalMemory / 1024).toFixed(2)} GB</span>
+              <span className="text-[9px] text-[#565f89]">
+                {totalMemBytes ? `of ${(totalMemBytes / (1024 ** 3)).toFixed(1)} GB` : "Process Sum"}
+              </span>
+            </div>
+            <div className="w-full bg-[#0b0c0f] h-1 rounded overflow-hidden mt-2">
+              <div 
+                className="bg-[#9ece6a] h-full transition-all duration-550" 
+                style={{ width: `${Math.min(100, totalMemBytes ? ((totalMemory * 1024 * 1024) / totalMemBytes) * 100 : (totalMemory / 655.36))}%` }}
+              ></div>
+            </div>
           </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-xl font-black text-slate-100">{(totalMemory / 1024).toFixed(2)} GB</span>
-            <span className="text-[9px] text-[#565f89]">of 64 GB</span>
-          </div>
-          <div className="w-full bg-[#16161e] h-1 rounded overflow-hidden mt-2">
-            <div 
-              className="bg-[#9ece6a] h-full transition-all duration-550" 
-              style={{ width: `${Math.min(100, (totalMemory / 655.36))}%` }}
-            ></div>
-          </div>
-        </div>
 
-        {/* Disk */}
-        <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
-            <span>Disk I/O Rate</span>
-            <HardDrive className="w-3.5 h-3.5 text-[#e0af68]" />
+          {/* Disk */}
+          <div className="bg-[#16161e] border border-[#24283b] rounded p-3 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              <span>Disk I/O Rate</span>
+              <HardDrive className="w-3.5 h-3.5 text-[#e0af68]" />
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-black text-slate-100">{totalDisk} MB/s</span>
+              <span className="text-[9px] text-[#565f89]">NVMe Array</span>
+            </div>
+            <div className="w-full bg-[#0b0c0f] h-1 rounded overflow-hidden mt-2">
+              <div 
+                className="bg-[#e0af68] h-full transition-all duration-550" 
+                style={{ width: `${Math.min(100, (parseFloat(totalDisk) * 2))}%` }}
+              ></div>
+            </div>
           </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-xl font-black text-slate-100">{totalDisk} MB/s</span>
-            <span className="text-[9px] text-[#565f89]">NVMe Array</span>
-          </div>
-          <div className="w-full bg-[#16161e] h-1 rounded overflow-hidden mt-2">
-            <div 
-              className="bg-[#e0af68] h-full transition-all duration-550" 
-              style={{ width: `${Math.min(100, (parseFloat(totalDisk) * 2))}%` }}
-            ></div>
-          </div>
-        </div>
 
-        {/* Network */}
-        <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
-            <span>Socket I/O</span>
-            <Network className="w-3.5 h-3.5 text-[#bb9af7]" />
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-xl font-black text-slate-100">{totalNetwork} Mbps</span>
-            <span className="text-[9px] text-[#565f89]">10GbE Port</span>
-          </div>
-          <div className="w-full bg-[#16161e] h-1 rounded overflow-hidden mt-2">
-            <div 
-              className="bg-[#bb9af7] h-full transition-all duration-550" 
-              style={{ width: `${Math.min(100, (parseFloat(totalNetwork) / 5))}%` }}
-            ></div>
+          {/* Network */}
+          <div className="bg-[#16161e] border border-[#24283b] rounded p-3 flex flex-col justify-between">
+            <div className="flex items-center justify-between text-[#565f89] text-[10px] font-bold uppercase tracking-wider mb-1.5">
+              <span>Socket I/O</span>
+              <Network className="w-3.5 h-3.5 text-[#bb9af7]" />
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className="text-xl font-black text-slate-100">{totalNetwork} Mbps</span>
+              <span className="text-[9px] text-[#565f89]">10GbE Port</span>
+            </div>
+            <div className="w-full bg-[#0b0c0f] h-1 rounded overflow-hidden mt-2">
+              <div 
+                className="bg-[#bb9af7] h-full transition-all duration-550" 
+                style={{ width: `${Math.min(100, (parseFloat(totalNetwork) / 5))}%` }}
+              ></div>
+            </div>
           </div>
         </div>
-      </div>
+      </WindowCard>
 
       {/* Control Actions & Filter Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#1a1b26] border border-[#24283b] p-3 rounded">
@@ -600,20 +516,18 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
       {/* MAIN CONTAINER */}
       {viewMode === "process-tree" ? (
         /* INTERACTIVE PARENT-CHILD PROCESS TREE VIEW */
-        <div className="flex-1 min-h-[480px] bg-[#1a1b26] border border-[#24283b] rounded overflow-hidden flex flex-col">
-          <div className="bg-[#16161e] px-3.5 py-2.5 border-b border-[#24283b] flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-[#565f89] uppercase tracking-wider">Active Process Lineage Tree</span>
-              <span className="text-[9px] bg-[#24283b] border border-[#24283b] px-1.5 py-0.5 text-[#7aa2f7] font-mono rounded font-black">
-                {visibleTreeRows.length} Threads Visible
-              </span>
-            </div>
-            <div className="flex items-center gap-1 text-[10px] text-[#565f89] font-mono">
-              <Info className="w-3.5 h-3.5 text-[#7aa2f7]" />
-              <span>Guidelines denote parent-child runtime links. Toggle expand icons.</span>
-            </div>
-          </div>
-
+        <WindowCard
+          id="taskmgr-process-tree"
+          title="Active Process Lineage Tree"
+          icon={<GitMerge className="w-3.5 h-3.5 text-[#7aa2f7] rotate-90" />}
+          defaultHeight={520}
+          minHeight={260}
+          badge={
+            <span className="text-[9px] bg-[#24283b] border border-[#24283b] px-1.5 py-0.5 text-[#7aa2f7] font-mono rounded font-black">
+              {visibleTreeRows.length} Threads Visible
+            </span>
+          }
+        >
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left text-[11px] text-[#a9b1d6] table-fixed min-w-[900px]">
               <thead className="bg-[#111217] text-[#565f89] uppercase tracking-wider text-[9px] font-bold sticky top-0 border-b border-[#24283b] z-10">
@@ -648,13 +562,11 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
                     const isOrphan = node.process.parentPid !== undefined && !processes.some(p => p.pid === node.process.parentPid);
                     const isSystemKernel = node.process.pid === 4 || node.process.pid === 0;
 
-                    const initiator = getProcessInitiator(node.process.name);
+                    const initiator = getProcessInitiator(node.process);
                     const initiatorColor = 
-                      initiator === "SYSTEM" 
+                      initiator === "SYSTEM" || initiator === "root"
                         ? "text-[#f7768e] bg-[#f7768e]/10 border-[#f7768e]/25" 
-                        : initiator.includes("David") 
-                        ? "text-[#7aa2f7] bg-[#7aa2f7]/10 border-[#7aa2f7]/25" 
-                        : "text-[#9ece6a] bg-[#9ece6a]/10 border-[#9ece6a]/25";
+                        : "text-[#7aa2f7] bg-[#7aa2f7]/10 border-[#7aa2f7]/25";
 
                     return (
                       <tr 
@@ -812,9 +724,9 @@ export default function TaskManager({ processes, onEndTask, onSpawnTask }: TaskM
 
           <div className="bg-[#111217] p-2.5 border-t border-[#24283b] flex justify-between items-center text-[10px] text-[#565f89] font-mono">
             <span>Parent-Child lineage threads active: {processes.length} nodes</span>
-            <span>Process Hypervisor: Windows WSL2 System Console Layer</span>
+            <span>Process Hypervisor: Windows Kernel / Host Process Layer</span>
           </div>
-        </div>
+        </WindowCard>
       ) : viewMode === "program-registry" ? (
         /* PROGRAM METADATA AND INSTALL HISTORY REGISTRY VIEW */
         <div className="flex-1 min-h-[480px] grid grid-cols-1 lg:grid-cols-12 gap-3">

@@ -5,8 +5,8 @@ import dotenv from "dotenv";
 import fs from "fs";
 import { spawn } from "child_process";
 
-import { getGeminiClient } from "./server/lib/gemini";
-import { getSystemStatus, getProcesses, getBandwidth } from "./server/services/system";
+import { getGeminiClient, callGeminiWithRetry } from "./server/lib/gemini";
+import { getSystemStatus, getProcesses, getBandwidth, getHistoricalLoad60m } from "./server/services/system";
 import { runTerminalCommand } from "./server/services/terminal";
 import { discoverDevices, getLiveConnections, getNeighbors, getInterfaces } from "./server/services/network";
 import { runNmap, NmapProfile } from "./server/services/nmap";
@@ -15,11 +15,12 @@ import { ipLookup } from "./server/services/intel";
 import { getStore, saveStore } from "./server/services/store";
 import { applyFirewallRules, removeFirewallRule, readActiveRules } from "./server/services/firewall";
 import { getLiveThreats } from "./server/services/threats";
+import { runLynisEquivalentAudit } from "./server/services/lynisAudit";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
 app.use(express.json());
 
@@ -108,12 +109,118 @@ app.get("/api/network/connections", async (_req, res) => {
   }
 });
 
+// System dependencies check (Nmap, Wireshark/Npcap)
+app.get("/api/system/dependencies", async (_req, res) => {
+  try {
+    const { findBinary } = require("./server/lib/exec");
+    
+    let nmapInstalled = false;
+    let npcapInstalled = false;
+
+    // Check Nmap
+    if (process.platform === "win32") {
+      const nmapWinPath = await findBinary("nmap", ["nmap", "C:\\Program Files (x86)\\Nmap\\nmap.exe", "C:\\Program Files\\Nmap\\nmap.exe"]);
+      if (nmapWinPath) nmapInstalled = true;
+    } else {
+      const nmapNixPath = await findBinary("nmap", ["nmap", "/usr/bin/nmap", "/usr/local/bin/nmap"]);
+      if (nmapNixPath) nmapInstalled = true;
+    }
+
+    // Check Wireshark/Npcap/TCPDump
+    if (process.platform === "win32") {
+      const tsharkWinPath = await findBinary("tshark", ["tshark", "C:\\Program Files\\Wireshark\\tshark.exe"]);
+      if (tsharkWinPath) npcapInstalled = true;
+      else {
+        // Fallback: check if Npcap service is running or folder exists
+        const fs = require("fs");
+        if (fs.existsSync("C:\\Windows\\System32\\Npcap")) npcapInstalled = true;
+      }
+    } else {
+      const tcpdumpPath = await findBinary("tcpdump", ["tcpdump", "/usr/sbin/tcpdump"]);
+      if (tcpdumpPath) npcapInstalled = true;
+    }
+
+    return res.json({
+      success: true,
+      nmap: nmapInstalled,
+      npcap: npcapInstalled
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Trigger silent installation of dependencies
+app.post("/api/system/install-deps", async (_req, res) => {
+  try {
+    const { exec } = require("child_process");
+    const os = require("os");
+    const fs = require("fs");
+    const path = require("path");
+    
+    if (os.platform() !== "win32") {
+      return res.status(400).json({ success: false, error: "Auto-install only supported on Windows." });
+    }
+
+    // Check if we are running packaged (Electron) or in dev, find bundled-deps
+    const resourcesPath = (process as any).resourcesPath || process.cwd();
+    const localNmap = path.join(resourcesPath, "bundled-deps", "nmap-setup.exe");
+    const localNpcap = path.join(resourcesPath, "bundled-deps", "npcap-setup.exe");
+    
+    const hasBundled = fs.existsSync(localNmap) && fs.existsSync(localNpcap);
+
+    let script = "";
+    
+    if (hasBundled) {
+      // Use local bundled installers
+      script = `
+        $ErrorActionPreference = "Stop"
+        Start-Process -FilePath "${localNmap}" -ArgumentList "/S" -Wait -NoNewWindow
+        Start-Process -FilePath "${localNpcap}" -ArgumentList "/loopback_support=yes /winpcap_mode=yes /S" -Wait -NoNewWindow
+      `;
+    } else {
+      // Fallback to downloading
+      script = `
+        $ErrorActionPreference = "Stop"
+        
+        # Download Nmap
+        Invoke-WebRequest -Uri "https://nmap.org/dist/nmap-7.94-setup.exe" -OutFile "$env:TEMP\\nmap-setup.exe"
+        Start-Process -FilePath "$env:TEMP\\nmap-setup.exe" -ArgumentList "/S" -Wait -NoNewWindow
+        
+        # Download Npcap (often required for Nmap and Wireshark)
+        Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-1.79.exe" -OutFile "$env:TEMP\\npcap-setup.exe"
+        Start-Process -FilePath "$env:TEMP\\npcap-setup.exe" -ArgumentList "/loopback_support=yes /winpcap_mode=yes /S" -Wait -NoNewWindow
+      `;
+    }
+
+    exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/\n/g, '; ')}"`, (err: Error | null) => {
+      if (err) {
+        console.error("Install script failed:", err);
+      }
+    });
+
+    // We return immediately, the UI can poll /dependencies until they show up
+    return res.json({ success: true, message: "Installation triggered in background." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // System telemetry
 app.get("/api/system/status", async (_req, res) => {
   try {
     return res.json(await getSystemStatus());
   } catch (err: any) {
     console.error("[SYSTEM STATUS ERROR]", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/system/history", async (_req, res) => {
+  try {
+    return res.json(await getHistoricalLoad60m());
+  } catch (err: any) {
+    console.error("[SYSTEM HISTORY ERROR]", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -219,109 +326,166 @@ app.get("/api/security/live-threats", async (_req, res) => {
   }
 });
 
-// Security AI audit and Threat report formulation
+// Security AI audit and Threat report formulation (real Gemini AI + real host/packet telemetry only)
 app.post("/api/security/ai-audit", async (req, res) => {
   const { scanData, packetsData, sourceThreat } = req.body;
   const ai = getGeminiClient();
 
-  const formattedScan = scanData ? JSON.stringify(scanData) : "No active port scan attached.";
-  const formattedPackets = packetsData ? JSON.stringify(packetsData) : "No packet captures attached.";
-  const threatSource = sourceThreat || "Anomalous Network Traffic Inspection";
+  if (!ai) {
+    return res.status(503).json({
+      error: "Live AI Security Audit requires a configured GEMINI_API_KEY in Settings > Secrets.",
+    });
+  }
 
-  const defaultReport = {
-    id: `rep-${Date.now()}`,
-    title: `Threat Mitigation Report: Audit on ${threatSource}`,
-    timestamp: new Date().toLocaleString(),
-    sourceThreat: threatSource,
-    severity: "high" as const,
-    status: "draft" as const,
-    executiveSummary: `An automated security audit was generated focusing on anomalous data patterns observed during local socket inspections. Real-time logging identified unauthorized protocols communicating internally.`,
-    attackVector: "Internal Network Pivot and Credential Leakage",
-    auditedDataPoints: ["Interactive Packet Analysis", "Security Center Telemetry"],
-    findings: [
-      "Detected vulnerable service ports active on internal subnets",
-      "Observed network packets transmitting insecure data structures",
-    ],
-    mitigations: [
-      { action: "Block remote port traffic", status: "completed" as const, type: "firewall" as const, details: "Created inbound block rule in NetGuard." },
-      { action: "Enforce secure key-exchange", status: "pending" as const, type: "remediation" as const, details: "Revoke outdated ciphers." },
-    ],
-    exportedTo: [],
-  };
+  try {
+    const [hostStatus, liveConns] = await Promise.all([
+      getSystemStatus(),
+      getLiveConnections(),
+    ]);
 
-  if (ai) {
-    try {
-      const prompt = `You are a senior Incident Response and Threat Hunter Agent.
-Analyze the following compiled data from NMAP scans and Wireshark captures:
+    const formattedScan = scanData ? JSON.stringify(scanData) : "None provided";
+    const formattedPackets = packetsData ? JSON.stringify(packetsData) : "None provided";
+    const formattedHost = JSON.stringify({
+      hostname: hostStatus.hostname,
+      platform: `${hostStatus.platform} ${hostStatus.release} (${hostStatus.arch})`,
+      cpuCount: hostStatus.cpuCount,
+      loadAvg: hostStatus.loadAvg,
+      usedMemPercent: hostStatus.usedMemPercent,
+      diskUsedPercent: hostStatus.diskUsedPercent,
+      activeSocketsCount: liveConns.length,
+      sampleActiveSockets: liveConns.slice(0, 15),
+    });
+    const threatSource = sourceThreat || "Live Host & Packet Capture Telemetry Audit";
+
+    const prompt = `You are a senior Incident Response and Threat Hunter Agent auditing real-time host and network telemetry.
+Analyze the following live data captured directly from the machine:
 ---
-ATTACHED SCAN FILE:
+LIVE HOST TELEMETRY & SOCKETS:
+${formattedHost}
+
+ATTACHED PORT SCAN DATA:
 ${formattedScan}
 
-ATTACHED PACKET LOGS:
+ATTACHED PACKET CAPTURE LOGS:
 ${formattedPackets}
 ---
-The main suspect behavior: ${threatSource}
+Audit Focus: ${threatSource}
 
-Draft a formal "ThreatResponseReport" structured in JSON format.
+Draft a formal "ThreatResponseReport" structured in JSON format based strictly on the real telemetry above.
 You MUST output ONLY a valid JSON object matching this schema. Avoid any extra commentary, code fences, or text before/after the JSON.
 
 JSON Schema structure:
 {
-  "title": "Strict title summarizing threat",
+  "title": "Concise title summarizing the live audit findings",
   "severity": "low" | "medium" | "high" | "critical",
-  "executiveSummary": "A concise executive summary explaining what happened and real risk",
-  "attackVector": "A clear definition of the attack vector",
-  "auditedDataPoints": ["array of sources parsed", "e.g., NMAP TCP Scan"],
-  "findings": ["At least 3 specific findings from the scan or packet traces"],
+  "executiveSummary": "A concise executive summary explaining what was observed in the live host/packet telemetry and the real risk posture",
+  "attackVector": "Specific vector or exposure surface observed (or 'Nominal / Local Services Only' if clean)",
+  "auditedDataPoints": ["array of real data sources inspected"],
+  "findings": ["At least 3 specific technical findings referencing real IPs, ports, processes, or resource metrics from the telemetry"],
   "mitigations": [
     {
-      "action": "Brief title of mitigation",
-      "status": "pending" | "completed",
+      "action": "Brief title of mitigation or hardening step",
+      "status": "pending",
       "type": "firewall" | "process" | "remediation",
-      "details": "Explanation of what needs to be run or configured"
+      "details": "Exact technical command or configuration to apply"
     }
   ]
 }
 
 Strict Rule: Output ONLY the raw JSON string starting with { and ending with }. No markdown block envelopes.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-      });
+    const geminiRes = await callGeminiWithRetry({ prompt, useSearch: true });
 
-      const jsonText = (response.text || "").trim();
-      const cleanJson = jsonText.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
-      const parsed = JSON.parse(cleanJson);
-
-      const newReport = {
-        id: `rep-${Date.now()}`,
-        title: parsed.title || defaultReport.title,
-        timestamp: new Date().toLocaleString(),
-        sourceThreat: threatSource,
-        severity: parsed.severity || "medium",
-        status: "draft" as const,
-        executiveSummary: parsed.executiveSummary || defaultReport.executiveSummary,
-        attackVector: parsed.attackVector || defaultReport.attackVector,
-        auditedDataPoints: parsed.auditedDataPoints || defaultReport.auditedDataPoints,
-        findings: parsed.findings || defaultReport.findings,
-        mitigations: parsed.mitigations || defaultReport.mitigations,
-        exportedTo: [],
-      };
-
-      const store = getStore();
-      saveStore({ threatReports: [...store.threatReports, newReport] });
-      return res.json(newReport);
-    } catch (err: any) {
-      console.error("Gemini failed during AI report formulation, using generic generator:", err);
-      const store = getStore();
-      saveStore({ threatReports: [...store.threatReports, defaultReport] });
-      return res.json(defaultReport);
+    let parsed: any = null;
+    if (geminiRes.text) {
+      try {
+        const jsonText = geminiRes.text.trim();
+        const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+        const cleanJson = jsonMatch
+          ? jsonMatch[0]
+          : jsonText.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+        parsed = JSON.parse(cleanJson);
+      } catch {
+        parsed = null;
+      }
     }
-  } else {
+
+    if (!parsed) {
+      // Synthesize report strictly from the real hostStatus, liveConns, and packetsData
+      const packetList = Array.isArray(packetsData) ? packetsData : [];
+      const listeningSockets = liveConns.filter((c) => c.state === "LISTEN");
+      const establishedSockets = liveConns.filter((c) => c.state === "ESTABLISHED");
+      const wildcardListeners = listeningSockets.filter(
+        (c) => c.localAddress === "0.0.0.0" || c.localAddress === "::" || c.localAddress === "*"
+      );
+
+      const quotaNote = geminiRes.quotaExhausted
+        ? " [Advisory: Gemini API free-tier rate limit (429 RESOURCE_EXHAUSTED) was reached; upgrading to a paid tier increases quota—select a billing-enabled API key in Settings > Secrets. Report synthesized directly from live OS kernel & socket telemetry.]"
+        : "";
+
+      parsed = {
+        title: `Live Host & Packet Telemetry Audit (${hostStatus.hostname})`,
+        severity: wildcardListeners.length > 2 ? "medium" : "low",
+        executiveSummary: `Audited host ${hostStatus.hostname} (${hostStatus.platform} ${hostStatus.release}) with ${liveConns.length} active kernel sockets (${listeningSockets.length} LISTEN, ${establishedSockets.length} ESTABLISHED) and ${packetList.length} captured packets.${quotaNote}`,
+        attackVector:
+          wildcardListeners.length > 0
+            ? `Wildcard listeners bound on ${wildcardListeners
+                .slice(0, 4)
+                .map((c) => `${c.protocol}/${c.localPort}`)
+                .join(", ")}`
+            : "Local Host & Active Socket Surface",
+        auditedDataPoints: [
+          `Host Kernel (${hostStatus.platform} ${hostStatus.release})`,
+          `Socket Table (${liveConns.length} live entries)`,
+          `Packet Capture (${packetList.length} live frames)`,
+        ],
+        findings: [
+          `Host CPU & Memory Telemetry: ${hostStatus.cpuCount} cores (1m load avg: ${hostStatus.loadAvg[0]}), Memory usage at ${hostStatus.usedMemPercent}%, Disk usage at ${hostStatus.diskUsedPercent}%.`,
+          `Active Socket Table: ${listeningSockets.length} listening ports and ${establishedSockets.length} established connections inspected (${wildcardListeners.length} bound to wildcard 0.0.0.0/::).`,
+          packetList.length > 0
+            ? `Live Packet Capture: Analyzed ${packetList.length} real frames across ${Array.from(
+                new Set(packetList.map((p: any) => p.protocol).filter(Boolean))
+              ).join(", ") || "active"} protocols.`
+            : `Live Socket Inspection: Verified active process bindings across ${liveConns.slice(0, 5).map((c) => `${c.localAddress}:${c.localPort}`).join(", ") || "local interfaces"}.`,
+        ],
+        mitigations:
+          wildcardListeners.length > 0
+            ? [
+                {
+                  action: "Audit wildcard listening sockets on 0.0.0.0 / ::",
+                  status: "pending",
+                  type: "firewall",
+                  details: "ss -tulnp",
+                },
+              ]
+            : [],
+      };
+    }
+
+    const newReport = {
+      id: `rep-${Date.now()}`,
+      title: parsed.title || `Live Security Audit: ${threatSource}`,
+      timestamp: new Date().toLocaleString(),
+      sourceThreat: threatSource,
+      severity: parsed.severity || "low",
+      status: "draft" as const,
+      executiveSummary: parsed.executiveSummary || "",
+      attackVector: parsed.attackVector || "Live Socket & Packet Inspection",
+      auditedDataPoints: Array.isArray(parsed.auditedDataPoints)
+        ? parsed.auditedDataPoints
+        : ["Live Packet Capture", "Host Socket Table"],
+      findings: Array.isArray(parsed.findings) ? parsed.findings : [],
+      mitigations: Array.isArray(parsed.mitigations) ? parsed.mitigations : [],
+      exportedTo: [],
+    };
+
     const store = getStore();
-    saveStore({ threatReports: [...store.threatReports, defaultReport] });
-    return res.json(defaultReport);
+    saveStore({ threatReports: [newReport, ...store.threatReports].slice(0, 30) });
+    return res.json(newReport);
+  } catch (err: any) {
+    return res.status(502).json({
+      error: `Live security analysis encountered an unexpected error: ${err?.message || err}`,
+    });
   }
 });
 
@@ -410,6 +574,66 @@ app.post("/api/alerts", (req, res) => {
   return res.json({ success: true });
 });
 
+// Lynis-equivalent System Hardening & Compliance Audit + Search-Grounded AI Remediation Planner
+app.post("/api/security/lynis-audit", async (req, res) => {
+  try {
+    const includeAi = req.body?.includeAi !== false;
+    const report = await runLynisEquivalentAudit(includeAi);
+    return res.json(report);
+  } catch (err: any) {
+    console.error("[LYNIS AUDIT ERROR]", err);
+    return res.status(500).json({ error: err?.message || "Failed to execute Lynis system audit." });
+  }
+});
+
+// Permission-gated Remediation Executor: ONLY executes when user explicitly sets approved: true
+app.post("/api/security/lynis-remediate", async (req, res) => {
+  const { approved, command, findingId, title } = req.body || {};
+
+  if (approved !== true) {
+    return res.status(403).json({
+      success: false,
+      error: "Execution blocked: Explicit user permission (approved: true) is required before running any remediation command.",
+    });
+  }
+
+  if (!command || typeof command !== "string" || !command.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: "Missing remediation command.",
+    });
+  }
+
+  try {
+    const output = await runTerminalCommand(command.trim());
+    return res.json({
+      success: true,
+      findingId: findingId || null,
+      title: title || "System Hardening Remediation",
+      executedCommand: command.trim(),
+      output,
+      executedAt: new Date().toLocaleTimeString(),
+    });
+  } catch (err: any) {
+    console.error("[LYNIS REMEDIATION ERROR]", err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || "Remediation command execution failed.",
+    });
+  }
+});
+
+// Explicit 404 handler for unmatched /api routes (prevents Vite SPA fallback from returning HTML)
+app.all("/api/*", (req, res) => {
+  return res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// JSON error handler for /api routes
+app.use("/api", (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[API UNCAUGHT ERROR]", err);
+  return res.status(500).json({ error: err?.message || "Internal server error" });
+});
+
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -422,7 +646,11 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = fs.existsSync(path.join(__dirname, "index.html"))
+      ? __dirname
+      : (fs.existsSync(path.join(__dirname, "dist"))
+        ? path.join(__dirname, "dist")
+        : path.join(process.cwd(), "dist"));
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

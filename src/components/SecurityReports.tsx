@@ -18,6 +18,7 @@ import {
   Info
 } from "lucide-react";
 import { ThreatResponseReport } from "../types";
+import { safeFetchJson } from "../lib/api";
 
 interface SecurityReportsProps {
   onAddFirewallRule: (rule: { name: string; port: string; protocol: "TCP" | "UDP" | "All"; direction: "Inbound"; action: "Block" }) => void;
@@ -27,7 +28,7 @@ interface SecurityReportsProps {
 export default function SecurityReports({ onAddFirewallRule, onRefreshReportsTrigger = 0 }: SecurityReportsProps) {
   const [reports, setReports] = useState<ThreatResponseReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [expandedReportId, setExpandedReportId] = useState<string | null>("rep-101");
+  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<string | null>(null);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<Record<string, string>>({});
   const [selectedTarget, setSelectedTarget] = useState<Record<string, string>>({});
@@ -42,9 +43,13 @@ export default function SecurityReports({ onAddFirewallRule, onRefreshReportsTri
   const fetchReports = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("/api/security/threat-reports");
-      const data = await response.json();
-      setReports(data);
+      const data = await safeFetchJson<any>("/api/security/threat-reports");
+      if (Array.isArray(data)) {
+        setReports(data);
+        if (data.length > 0) {
+          setExpandedReportId(prev => prev ?? data[0].id);
+        }
+      }
       setIsLoading(false);
     } catch (err) {
       console.error("Failed to load threat reports:", err);
@@ -61,14 +66,13 @@ export default function SecurityReports({ onAddFirewallRule, onRefreshReportsTri
     setIsExporting(reportId);
     
     try {
-      const response = await fetch("/api/security/threat-reports/export", {
+      const data = await safeFetchJson<any>("/api/security/threat-reports/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reportId, targetDestination: target })
       });
-      const data = await response.json();
       
-      if (data.success) {
+      if (data && data.success) {
         setExportSuccessMsg(prev => ({
           ...prev,
           [reportId]: `Report dispatched to ${target} successfully!`

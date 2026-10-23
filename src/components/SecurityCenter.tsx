@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { 
   ShieldAlert, 
   ShieldCheck, 
@@ -13,11 +13,14 @@ import {
   Eye,
   Trash2,
   Sliders,
+  Info,
   ShieldAlert as ShieldAlertIcon
 } from "lucide-react";
 import { ThreatLog, FirewallRule, SuspiciousActivity } from "../types";
+import { motion, AnimatePresence } from "motion/react";
 import SecurityReports from "./SecurityReports";
 import SecurityHeatMap from "./SecurityHeatMap";
+import WindowCard from "./WindowCard";
 
 interface SecurityCenterProps {
   threatLogs: ThreatLog[];
@@ -64,6 +67,11 @@ export default function SecurityCenter({
   const [newRuleDir, setNewRuleDir] = useState<"Inbound" | "Outbound">("Inbound");
   const [newRuleAction, setNewRuleAction] = useState<"Allow" | "Block">("Block");
 
+  const activeActivities = suspiciousActivities.filter(a => a.status === "active");
+  const activeCriticalCount = activeActivities.filter(a => a.severity === "critical").length;
+  const activeCriticalLogCount = threatLogs.filter(l => l.severity === "Critical" && l.status !== "Resolved").length;
+  const totalActiveCritical = activeCriticalCount + activeCriticalLogCount;
+
   const handleCreateRule = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRuleName || !newRulePort) return;
@@ -82,7 +90,7 @@ export default function SecurityCenter({
   const getSeverityBadge = (sev: SuspiciousActivity["severity"]) => {
     switch (sev) {
       case "critical":
-        return "bg-[#f7768e]/15 text-[#f7768e] border-[#f7768e]/30";
+        return "bg-[#f7768e]/15 text-[#f7768e] border-[#f7768e]/40";
       case "high":
         return "bg-[#ff9e64]/15 text-[#ff9e64] border-[#ff9e64]/30";
       case "medium":
@@ -101,6 +109,30 @@ export default function SecurityCenter({
           <p className="text-[#565f89] text-[11px]">Real-time host intrusion detection (IDS), active deep-packet telemetry monitors, and routing rules.</p>
         </div>
         <div className="flex items-center gap-2">
+          {totalActiveCritical > 0 && (
+            <motion.div
+              animate={{
+                boxShadow: [
+                  "0 0 0px rgba(247, 118, 142, 0)",
+                  "0 0 12px rgba(247, 118, 142, 0.35)",
+                  "0 0 0px rgba(247, 118, 142, 0)"
+                ],
+                borderColor: [
+                  "rgba(247, 118, 142, 0.3)",
+                  "rgba(247, 118, 142, 0.75)",
+                  "rgba(247, 118, 142, 0.3)"
+                ]
+              }}
+              transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+              className="text-[10px] border px-2.5 py-1 font-mono rounded flex items-center gap-1.5 font-bold bg-[#f7768e]/12 text-[#f7768e]"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#f7768e] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#f7768e]"></span>
+              </span>
+              {totalActiveCritical} CRITICAL {totalActiveCritical === 1 ? "THREAT" : "THREATS"} ACTIVE
+            </motion.div>
+          )}
           <button
             onClick={onToggleIds}
             className={`text-[10px] border px-2.5 py-1 font-mono rounded flex items-center gap-1.5 font-bold transition cursor-pointer ${
@@ -116,7 +148,41 @@ export default function SecurityCenter({
       </div>
 
       {/* Tactical Global Threat Origin Tracking & Forensics HUD */}
-      <SecurityHeatMap suspiciousActivities={suspiciousActivities} idsEnabled={idsEnabled} />
+      <WindowCard
+        id="sec_threat_heatmap"
+        title="Global Threat Origin Tracking & Forensics HUD"
+        icon={<Radio className="w-4 h-4 text-[#f7768e] animate-pulse" />}
+        subtitle="Geographic threat origins, remote botnet probes, and target ports"
+        defaultHeight={330}
+        minHeight={200}
+        maxHeight={650}
+        badge={
+          <div className="flex items-center gap-1.5">
+            {activeCriticalCount > 0 && (
+              <motion.span
+                animate={{
+                  opacity: [0.75, 1, 0.75],
+                  boxShadow: [
+                    "0 0 0px rgba(247, 118, 142, 0)",
+                    "0 0 10px rgba(247, 118, 142, 0.3)",
+                    "0 0 0px rgba(247, 118, 142, 0)"
+                  ]
+                }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                className="text-[9px] font-mono font-bold text-[#f7768e] bg-[#f7768e]/15 border border-[#f7768e]/40 px-2 py-0.5 rounded flex items-center gap-1"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-[#f7768e] animate-ping" />
+                {activeCriticalCount} CRITICAL
+              </motion.span>
+            )}
+            <span className="text-[9px] font-mono text-[#7aa2f7] bg-[#7aa2f7]/10 border border-[#7aa2f7]/20 px-2 py-0.5 rounded">
+              {activeActivities.length} ACTIVE THREATS
+            </span>
+          </div>
+        }
+      >
+        <SecurityHeatMap suspiciousActivities={suspiciousActivities} idsEnabled={idsEnabled} />
+      </WindowCard>
 
       {/* Grid: Left Column (Real-time IDS & Audits), Right Column (Firewall configs) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
@@ -125,7 +191,31 @@ export default function SecurityCenter({
         <div className="lg:col-span-7 space-y-3 flex flex-col">
           
           {/* Real-time Suspicious Activities Monitoring Module (The new IDS block) */}
-          <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3 space-y-3">
+          <WindowCard
+            id="sec_intrusion_feed"
+            title="Live Suspicious Socket Intrusion Feed"
+            icon={<ShieldAlert className="w-4 h-4 text-[#f7768e]" />}
+            subtitle="Intercepting anomalous TCP handshake signatures, brute forcing, and network spikes"
+            defaultHeight={280}
+            minHeight={180}
+            maxHeight={600}
+            actions={
+              <div className="flex items-center gap-2 bg-[#16161e] border border-[#24283b] px-2 py-0.5 rounded">
+                <Sliders className="w-3 h-3 text-[#7aa2f7]" />
+                <span className="text-[9px] text-[#565f89] font-mono font-bold uppercase shrink-0">Threshold:</span>
+                <input 
+                  type="range" 
+                  min="20" 
+                  max="150" 
+                  value={idsThreshold}
+                  onChange={(e) => onChangeIdsThreshold(Number(e.target.value))}
+                  className="w-16 h-1 bg-[#24283b] rounded-lg appearance-none cursor-pointer accent-[#7aa2f7]"
+                />
+                <span className="text-[9px] font-mono font-bold text-[#7aa2f7]">{idsThreshold}M</span>
+              </div>
+            }
+          >
+            <div className="p-3 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#24283b]/60 pb-2.5">
               <div>
                 <div className="flex items-center gap-1.5">
@@ -160,68 +250,115 @@ export default function SecurityCenter({
                   <p className="font-bold text-slate-400">IDS Network Guard Decoupled</p>
                   <p className="text-[10px] max-w-xs mx-auto leading-normal">Arm the IDS Shield to activate active thread surveillance and secure raw packet flows.</p>
                 </div>
-              ) : suspiciousActivities.filter(a => a.status === "active").length === 0 ? (
+              ) : activeActivities.length === 0 ? (
                 <div className="py-8 text-center text-[#9ece6a] text-xs font-mono space-y-1.5 bg-[#16161e]/40 rounded border border-[#24283b]/30">
                   <CheckCircle className="w-6 h-6 mx-auto text-[#9ece6a]" />
                   <span className="font-bold uppercase tracking-wide">Threat Horizon Nominal</span>
                   <p className="text-[#565f89] text-[10px] max-w-xs mx-auto leading-normal">Deep-packet inspection module reporting clean local loopbacks. No alerts logged.</p>
                 </div>
               ) : (
-                suspiciousActivities.filter(a => a.status === "active").map((activity) => (
-                  <div 
-                    key={activity.id} 
-                    className="p-2.5 bg-[#16161e] border border-[#24283b] rounded flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs relative overflow-hidden"
-                  >
-                    <div className="space-y-1.5 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`px-1 py-0.2 rounded text-[8.5px] font-black uppercase border ${getSeverityBadge(activity.severity)}`}>
-                          {activity.type}
-                        </span>
-                        <span className="font-mono text-[#7aa2f7] font-bold">{activity.srcIp}</span>
-                        <span className="text-[#565f89] font-mono">→</span>
-                        <span className="font-mono text-[#bb9af7] font-bold">{activity.destIp}:{activity.destPort}</span>
-                      </div>
-                      
-                      <p className="text-[#a9b1d6] leading-snug text-[11px] font-medium">
-                        {activity.reason} <span className="text-[#565f89] font-mono">({activity.packetSize})</span>
-                      </p>
+                activeActivities.map((activity) => {
+                  const isCritical = activity.severity === "critical";
+                  return (
+                    <motion.div 
+                      key={activity.id}
+                      animate={
+                        isCritical
+                          ? {
+                              boxShadow: [
+                                "0 0 0px rgba(247, 118, 142, 0), inset 0 0 0px rgba(247, 118, 142, 0)",
+                                "0 0 14px rgba(247, 118, 142, 0.22), inset 0 0 12px rgba(247, 118, 142, 0.08)",
+                                "0 0 0px rgba(247, 118, 142, 0), inset 0 0 0px rgba(247, 118, 142, 0)"
+                              ],
+                              borderColor: [
+                                "rgba(247, 118, 142, 0.28)",
+                                "rgba(247, 118, 142, 0.7)",
+                                "rgba(247, 118, 142, 0.28)"
+                              ]
+                            }
+                          : undefined
+                      }
+                      transition={
+                        isCritical
+                          ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
+                          : undefined
+                      }
+                      className={`p-2.5 rounded flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs relative overflow-hidden border ${
+                        isCritical
+                          ? "bg-[#1a1620] border-[#f7768e]/45"
+                          : "bg-[#16161e] border-[#24283b]"
+                      }`}
+                    >
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {isCritical && (
+                            <span className="relative flex h-2 w-2 mr-0.5" title="Active Critical Threat">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#f7768e] opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#f7768e]"></span>
+                            </span>
+                          )}
+                          <motion.span
+                            animate={
+                              isCritical
+                                ? { opacity: [0.8, 1, 0.8], scale: [1, 1.03, 1] }
+                                : undefined
+                            }
+                            transition={
+                              isCritical
+                                ? { duration: 1.8, repeat: Infinity, ease: "easeInOut" }
+                                : undefined
+                            }
+                            className={`px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase border ${getSeverityBadge(activity.severity)}`}
+                          >
+                            {isCritical ? `CRITICAL • ${activity.type}` : activity.type}
+                          </motion.span>
+                          <span className="font-mono text-[#7aa2f7] font-bold">{activity.srcIp}</span>
+                          <span className="text-[#565f89] font-mono">→</span>
+                          <span className="font-mono text-[#bb9af7] font-bold">{activity.destIp}:{activity.destPort}</span>
+                        </div>
+                        
+                        <p className="text-[#a9b1d6] leading-snug text-[11px] font-medium">
+                          {activity.reason} <span className="text-[#565f89] font-mono">({activity.packetSize})</span>
+                        </p>
 
-                      <div className="text-[9px] text-[#565f89] font-mono flex items-center gap-2">
-                        <span>Intercept: {activity.timestamp}</span>
-                        <span>•</span>
-                        <span className="uppercase text-[#ff9e64] font-bold">Proto: {activity.protocol}</span>
+                        <div className="text-[9px] text-[#565f89] font-mono flex items-center gap-2">
+                          <span>Intercept: {activity.timestamp}</span>
+                          <span>•</span>
+                          <span className="uppercase text-[#ff9e64] font-bold">Proto: {activity.protocol}</span>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Threat Mitigation Triggers */}
-                    <div className="shrink-0 flex items-center gap-1.5 self-end sm:self-auto pt-2 sm:pt-0 border-t border-[#24283b]/40 sm:border-t-0">
-                      <button
-                        onClick={() => onAnalyzeActivityAI(activity)}
-                        className="px-2 py-1 bg-[#7aa2f7]/10 hover:bg-[#7aa2f7]/20 border border-[#7aa2f7]/20 text-[#7aa2f7] text-[10.5px] font-bold rounded transition cursor-pointer"
-                        title="Analyze with Gemini AI"
-                      >
-                        AI Analyze
-                      </button>
-                      <button
-                        onClick={() => onMitigateActivity(activity.id)}
-                        className="px-2 py-1 bg-[#f7768e]/10 hover:bg-[#f7768e]/25 border border-[#f7768e]/30 text-[#f7768e] text-[10.5px] font-bold rounded transition cursor-pointer"
-                        title="Create Firewall rule to block this source IP"
-                      >
-                        Block IP
-                      </button>
-                      <button
-                        onClick={() => onIgnoreActivity(activity.id)}
-                        className="px-2 py-1 bg-[#565f89]/10 hover:bg-[#24283b] border border-[#24283b] text-[#565f89] hover:text-slate-200 text-[10.5px] font-bold rounded transition cursor-pointer"
-                        title="Mute alert"
-                      >
-                        Mute
-                      </button>
-                    </div>
-                  </div>
-                ))
+                      {/* Threat Mitigation Triggers */}
+                      <div className="shrink-0 flex items-center gap-1.5 self-end sm:self-auto pt-2 sm:pt-0 border-t border-[#24283b]/40 sm:border-t-0">
+                        <button
+                          onClick={() => onAnalyzeActivityAI(activity)}
+                          className="px-2 py-1 bg-[#7aa2f7]/10 hover:bg-[#7aa2f7]/20 border border-[#7aa2f7]/20 text-[#7aa2f7] text-[10.5px] font-bold rounded transition cursor-pointer"
+                          title="Analyze with Gemini AI"
+                        >
+                          AI Analyze
+                        </button>
+                        <button
+                          onClick={() => onMitigateActivity(activity.id)}
+                          className="px-2 py-1 bg-[#f7768e]/10 hover:bg-[#f7768e]/25 border border-[#f7768e]/30 text-[#f7768e] text-[10.5px] font-bold rounded transition cursor-pointer"
+                          title="Create Firewall rule to block this source IP"
+                        >
+                          Block IP
+                        </button>
+                        <button
+                          onClick={() => onIgnoreActivity(activity.id)}
+                          className="px-2 py-1 bg-[#565f89]/10 hover:bg-[#24283b] border border-[#24283b] text-[#565f89] hover:text-slate-200 text-[10.5px] font-bold rounded transition cursor-pointer"
+                          title="Mute alert"
+                        >
+                          Mute
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })
               )}
             </div>
-          </div>
+            </div>
+          </WindowCard>
 
           {/* Integrity Scanner */}
           <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3">
@@ -244,7 +381,7 @@ export default function SecurityCenter({
               <div className="p-3 bg-[#16161e] border border-[#24283b] rounded text-xs font-mono text-[#7aa2f7] space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#7aa2f7] animate-ping"></span>
-                  <span>[SCANNING] Sweeping C:\Windows\System32 and registry hives...</span>
+                  <span>[SCANNING] Querying live host kernel telemetry, memory pressure, and active socket tables...</span>
                 </div>
                 <div className="w-full bg-[#0b0c0f] h-1 rounded overflow-hidden mt-1">
                   <div className="bg-[#7aa2f7] h-full animate-pulse" style={{ width: "65%" }}></div>
@@ -252,9 +389,9 @@ export default function SecurityCenter({
               </div>
             ) : scanResult ? (
               <div className="p-2.5 bg-[#16161e] border border-[#24283b] rounded text-xs font-mono space-y-1.5">
-                <div className="flex items-center gap-1.5 text-[#e0af68] font-bold">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>Scan Completed - 1 Host Anomaly Detected</span>
+                <div className="flex items-center gap-1.5 text-[#9ece6a] font-bold">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>Live Host Integrity Scan Completed</span>
                 </div>
                 <pre className="text-[10px] text-[#a9b1d6] leading-tight overflow-x-auto whitespace-pre-wrap">
                   {scanResult}
@@ -262,44 +399,103 @@ export default function SecurityCenter({
               </div>
             ) : (
               <div className="p-2.5 bg-[#16161e] border border-[#24283b]/60 rounded text-xs text-[#565f89] font-mono flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-[#9ece6a]" />
-                <span>Last scan completed 15 minutes ago. No malware processes found.</span>
+                <Info className="w-4 h-4 text-[#7aa2f7]" />
+                <span>No host integrity scan executed yet in this session. Click "Execute Scan" to inspect live system telemetry.</span>
               </div>
             )}
           </div>
 
           {/* Active Intrusion/Threat Logs */}
-          <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3 flex-1">
-            <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider mb-2">Vulnerability & Intrusion Logs</h3>
-            
-            <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
-              {threatLogs.map(log => (
-                <div key={log.id} className="p-2 bg-[#16161e] border border-[#24283b] rounded flex items-start justify-between text-xs">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
-                        log.severity === "Critical" 
-                          ? "bg-[#f7768e]/10 text-[#f7768e] border border-[#f7768e]/20" 
-                          : "bg-[#e0af68]/10 text-[#e0af68] border border-[#e0af68]/20"
+          <WindowCard
+            id="sec_threat_logs"
+            title="Vulnerability & Intrusion Logs"
+            icon={<FileText className="w-4 h-4 text-[#7aa2f7]" />}
+            subtitle="Flagged historical telemetry events and remediation state"
+            defaultHeight={220}
+            minHeight={150}
+            maxHeight={500}
+          >
+            <div className="p-3 space-y-2">
+              <AnimatePresence initial={false}>
+                {threatLogs.map(log => {
+                  const isActiveCriticalLog = log.severity === "Critical" && log.status !== "Resolved";
+                  return (
+                    <motion.div
+                      key={log.id}
+                      layout
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={
+                        isActiveCriticalLog
+                          ? {
+                              opacity: 1,
+                              x: 0,
+                              boxShadow: [
+                                "0 0 0px rgba(247, 118, 142, 0), inset 0 0 0px rgba(247, 118, 142, 0)",
+                                "0 0 12px rgba(247, 118, 142, 0.2), inset 0 0 8px rgba(247, 118, 142, 0.06)",
+                                "0 0 0px rgba(247, 118, 142, 0), inset 0 0 0px rgba(247, 118, 142, 0)"
+                              ],
+                              borderColor: [
+                                "rgba(247, 118, 142, 0.25)",
+                                "rgba(247, 118, 142, 0.65)",
+                                "rgba(247, 118, 142, 0.25)"
+                              ]
+                            }
+                          : { opacity: 1, x: 0 }
+                      }
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={
+                        isActiveCriticalLog
+                          ? {
+                              opacity: { duration: 0.2 },
+                              x: { type: "spring", stiffness: 300, damping: 25 },
+                              boxShadow: { duration: 2.5, repeat: Infinity, ease: "easeInOut" },
+                              borderColor: { duration: 2.5, repeat: Infinity, ease: "easeInOut" }
+                            }
+                          : { type: "spring", stiffness: 300, damping: 25 }
+                      }
+                      className={`p-2 rounded flex items-start justify-between text-xs border ${
+                        isActiveCriticalLog
+                          ? "bg-[#1a1620] border-[#f7768e]/40"
+                          : "bg-[#16161e] border-[#24283b]"
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          {isActiveCriticalLog && (
+                            <span className="relative flex h-2 w-2" title="Active Critical Log">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#f7768e] opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#f7768e]"></span>
+                            </span>
+                          )}
+                          <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
+                            log.severity === "Critical" 
+                              ? "bg-[#f7768e]/15 text-[#f7768e] border border-[#f7768e]/30" 
+                              : "bg-[#e0af68]/10 text-[#e0af68] border border-[#e0af68]/20"
+                          }`}>
+                            {log.severity}
+                          </span>
+                          <span className="font-bold text-slate-200">{log.host}</span>
+                        </div>
+                        <p className="text-[#a9b1d6] leading-snug">{log.message}</p>
+                        <div className="text-[9px] text-[#565f89] font-mono">
+                          {log.timestamp}
+                        </div>
+                      </div>
+    
+                      <div className={`shrink-0 flex items-center gap-1 font-bold text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border ${
+                        log.status === "Flagged"
+                          ? "text-[#f7768e] bg-[#f7768e]/10 border-[#f7768e]/25"
+                          : "text-[#9ece6a] bg-[#9ece6a]/10 border-[#9ece6a]/20"
                       }`}>
-                        {log.severity}
-                      </span>
-                      <span className="font-bold text-slate-200">{log.host}</span>
-                    </div>
-                    <p className="text-[#a9b1d6] leading-snug">{log.message}</p>
-                    <div className="text-[9px] text-[#565f89] font-mono">
-                      {log.timestamp}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-1 text-[#9ece6a] font-bold text-[10px] font-mono uppercase bg-[#9ece6a]/10 border border-[#9ece6a]/20 px-1.5 py-0.5 rounded">
-                    <CheckCircle className="w-3 h-3" />
-                    {log.status}
-                  </div>
-                </div>
-              ))}
+                        {log.status === "Flagged" ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+                        {log.status}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
             </div>
-          </div>
+          </WindowCard>
 
         </div>
 
@@ -307,136 +503,160 @@ export default function SecurityCenter({
         <div className="lg:col-span-5 space-y-3">
           
           {/* Active Firewall Rules */}
-          <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3">
-            <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider mb-1.5">Windows Firewall Port Matrix</h3>
-            <p className="text-[#565f89] text-[10px] mb-3">Dynamically allow or drop packets traversing core system ports.</p>
-
-            <div className="space-y-1.5 max-h-[170px] overflow-y-auto pr-1">
-              {firewallRules.map(rule => (
-                <div key={rule.id} className="p-1.5 bg-[#16161e] border border-[#24283b] rounded flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <button
-                      onClick={() => onToggleFirewallRule(rule.id)}
-                      className="shrink-0 focus:outline-none"
-                    >
-                      {rule.enabled ? (
-                        <div className="p-1 rounded bg-[#9ece6a]/10 text-[#9ece6a] border border-[#9ece6a]/20">
-                          <Lock className="w-3 h-3" />
+          <WindowCard
+            id="sec_firewall_rules"
+            title="Windows Firewall Port Matrix"
+            icon={<Lock className="w-4 h-4 text-[#9ece6a]" />}
+            subtitle="Dynamically allow or drop packets traversing core system ports"
+            defaultHeight={420}
+            minHeight={250}
+            maxHeight={750}
+            badge={
+              <span className="text-[9px] font-mono text-[#9ece6a] bg-[#9ece6a]/10 border border-[#9ece6a]/20 px-2 py-0.5 rounded">
+                {firewallRules.filter(r => r.enabled).length} ACTIVE RULES
+              </span>
+            }
+          >
+            <div className="p-3 space-y-3">
+              <div className="space-y-1.5 max-h-[170px] overflow-y-auto pr-1">
+                {firewallRules.map(rule => (
+                  <div key={rule.id} className="p-1.5 bg-[#16161e] border border-[#24283b] rounded flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button
+                        onClick={() => onToggleFirewallRule(rule.id)}
+                        className="shrink-0 focus:outline-none"
+                      >
+                        {rule.enabled ? (
+                          <div className="p-1 rounded bg-[#9ece6a]/10 text-[#9ece6a] border border-[#9ece6a]/20">
+                            <Lock className="w-3 h-3" />
+                          </div>
+                        ) : (
+                          <div className="p-1 rounded bg-[#565f89]/10 text-[#565f89] border border-[#24283b]">
+                            <Unlock className="w-3 h-3" />
+                          </div>
+                        )}
+                      </button>
+                      
+                      <div className="truncate font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-200 text-[11px] truncate">{rule.name}</span>
+                          <span className="text-[9px] bg-[#0b0c0f] border border-[#24283b] px-1 text-[#7aa2f7] rounded font-bold">
+                            {rule.protocol} {rule.port}
+                          </span>
                         </div>
-                      ) : (
-                        <div className="p-1 rounded bg-[#565f89]/10 text-[#565f89] border border-[#24283b]">
-                          <Unlock className="w-3 h-3" />
-                        </div>
-                      )}
-                    </button>
-                    
-                    <div className="truncate font-mono">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-slate-200 text-[11px] truncate">{rule.name}</span>
-                        <span className="text-[9px] bg-[#0b0c0f] border border-[#24283b] px-1 text-[#7aa2f7] rounded font-bold">
-                          {rule.protocol} {rule.port}
+                        <span className="text-[9px] text-[#565f89] uppercase">
+                          {rule.direction} • {rule.enabled ? "ACTIVE" : "DISABLED"}
                         </span>
                       </div>
-                      <span className="text-[9px] text-[#565f89] uppercase">
-                        {rule.direction} • {rule.enabled ? "ACTIVE" : "DISABLED"}
-                      </span>
+                    </div>
+
+                    <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded font-mono ${
+                      rule.action === "Block" 
+                        ? "bg-[#f7768e]/10 text-[#f7768e] border border-[#f7768e]/20" 
+                        : "bg-[#9ece6a]/10 text-[#9ece6a] border border-[#9ece6a]/20"
+                    }`}>
+                      {rule.action}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Quick Create Firewall Rule Form */}
+              <div className="border-t border-[#24283b] pt-3">
+                <h4 className="text-xs font-bold text-slate-100 uppercase tracking-wider mb-2">Create New Policy</h4>
+                
+                <form onSubmit={handleCreateRule} className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Rule Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Block Port 23"
+                        value={newRuleName}
+                        onChange={(e) => setNewRuleName(e.target.value)}
+                        className="w-full bg-[#16161e] border border-[#24283b] rounded px-2 py-1 text-xs placeholder-[#565f89] text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Port Range</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 23"
+                        value={newRulePort}
+                        onChange={(e) => setNewRulePort(e.target.value)}
+                        className="w-full bg-[#16161e] border border-[#24283b] rounded px-2 py-1 text-xs placeholder-[#565f89] text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7] font-mono"
+                      />
                     </div>
                   </div>
 
-                  <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded font-mono ${
-                    rule.action === "Block" 
-                      ? "bg-[#f7768e]/10 text-[#f7768e] border border-[#f7768e]/20" 
-                      : "bg-[#9ece6a]/10 text-[#9ece6a] border border-[#9ece6a]/20"
-                  }`}>
-                    {rule.action}
-                  </span>
-                </div>
-              ))}
+                  <div className="grid grid-cols-3 gap-1.5 text-xs">
+                    <div>
+                      <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Proto</label>
+                      <select
+                        value={newRuleProto}
+                        onChange={(e) => setNewRuleProto(e.target.value as any)}
+                        className="w-full bg-[#16161e] border border-[#24283b] rounded px-1.5 py-1 text-xs text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
+                      >
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                        <option value="All">All</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Dir</label>
+                      <select
+                        value={newRuleDir}
+                        onChange={(e) => setNewRuleDir(e.target.value as any)}
+                        className="w-full bg-[#16161e] border border-[#24283b] rounded px-1.5 py-1 text-xs text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
+                      >
+                        <option value="Inbound">Inbound</option>
+                        <option value="Outbound">Outbound</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Action</label>
+                      <select
+                        value={newRuleAction}
+                        onChange={(e) => setNewRuleAction(e.target.value as any)}
+                        className="w-full bg-[#16161e] border border-[#24283b] rounded px-1.5 py-1 text-xs text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
+                      >
+                        <option value="Block">Block</option>
+                        <option value="Allow">Allow</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-[#7aa2f7] hover:bg-[#7aa2f7]/90 text-slate-950 text-xs font-bold rounded transition cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-slate-950" />
+                    Commit Policy Rule
+                  </button>
+                </form>
+              </div>
             </div>
-          </div>
-
-          {/* Quick Create Firewall Rule Form */}
-          <div className="bg-[#1a1b26] border border-[#24283b] rounded p-3">
-            <h3 className="text-xs font-bold text-slate-100 uppercase tracking-wider mb-2">Create New Policy</h3>
-            
-            <form onSubmit={handleCreateRule} className="space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Rule Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Block Port 23"
-                    value={newRuleName}
-                    onChange={(e) => setNewRuleName(e.target.value)}
-                    className="w-full bg-[#16161e] border border-[#24283b] rounded px-2 py-1 text-xs placeholder-[#565f89] text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Port Range</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. 23"
-                    value={newRulePort}
-                    onChange={(e) => setNewRulePort(e.target.value)}
-                    className="w-full bg-[#16161e] border border-[#24283b] rounded px-2 py-1 text-xs placeholder-[#565f89] text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7] font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-1.5 text-xs">
-                <div>
-                  <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Proto</label>
-                  <select
-                    value={newRuleProto}
-                    onChange={(e) => setNewRuleProto(e.target.value as any)}
-                    className="w-full bg-[#16161e] border border-[#24283b] rounded px-1.5 py-1 text-xs text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
-                  >
-                    <option value="TCP">TCP</option>
-                    <option value="UDP">UDP</option>
-                    <option value="All">All</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Dir</label>
-                  <select
-                    value={newRuleDir}
-                    onChange={(e) => setNewRuleDir(e.target.value as any)}
-                    className="w-full bg-[#16161e] border border-[#24283b] rounded px-1.5 py-1 text-xs text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
-                  >
-                    <option value="Inbound">Inbound</option>
-                    <option value="Outbound">Outbound</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] text-[#565f89] font-bold uppercase block mb-1">Action</label>
-                  <select
-                    value={newRuleAction}
-                    onChange={(e) => setNewRuleAction(e.target.value as any)}
-                    className="w-full bg-[#16161e] border border-[#24283b] rounded px-1.5 py-1 text-xs text-[#a9b1d6] focus:outline-none focus:border-[#7aa2f7]"
-                  >
-                    <option value="Block">Block</option>
-                    <option value="Allow">Allow</option>
-                  </select>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-[#7aa2f7] hover:bg-[#7aa2f7]/90 text-slate-950 text-xs font-bold rounded transition cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 text-slate-950" />
-                Commit Policy Rule
-              </button>
-            </form>
-          </div>
+          </WindowCard>
 
         </div>
 
         {/* Global Threat Response & Vulnerability Files Cabinet */}
-        <div className="lg:col-span-12 mt-4">
-          <SecurityReports onAddFirewallRule={onAddFirewallRule} onRefreshReportsTrigger={onRefreshReportsTrigger} />
+        <div className="lg:col-span-12 mt-2">
+          <WindowCard
+            id="sec_incident_reports"
+            title="Incident Response & Threat Mitigation Reports"
+            icon={<FileText className="w-4 h-4 text-[#7aa2f7]" />}
+            subtitle="AI-formulated threat response dossiers and firewall mitigation actions"
+            defaultHeight={420}
+            minHeight={250}
+            maxHeight={800}
+          >
+            <div className="p-3">
+              <SecurityReports onAddFirewallRule={onAddFirewallRule} onRefreshReportsTrigger={onRefreshReportsTrigger} />
+            </div>
+          </WindowCard>
         </div>
 
       </div>

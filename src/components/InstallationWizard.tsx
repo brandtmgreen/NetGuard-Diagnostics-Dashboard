@@ -17,6 +17,7 @@ import {
   Layers, 
   ExternalLink 
 } from "lucide-react";
+import { safeFetchJson } from "../lib/api";
 
 interface InstallationWizardProps {
   onSaveConfig: (apiKey: string, port: string, theme: string) => void;
@@ -54,8 +55,10 @@ export default function InstallationWizard({ onSaveConfig }: InstallationWizardP
     }));
 
     try {
-      const res = await fetch("/api/system/status");
-      const status = await res.json();
+      const status = await safeFetchJson<any>("/api/system/status");
+      if (!status) {
+        throw new Error("Diagnostic daemon did not return valid status JSON");
+      }
       const ramGb = status.totalMemBytes ? (status.totalMemBytes / 1024 / 1024 / 1024).toFixed(1) : "?";
       const loadPct = status.cpuCount ? Math.round(((status.loadAvg?.[0] ?? 0) / status.cpuCount) * 100) : 0;
 
@@ -101,13 +104,12 @@ export default function InstallationWizard({ onSaveConfig }: InstallationWizardP
   const saveConfiguration = async () => {
     try {
       // Direct integration call to save environment configuration back to disk
-      const response = await fetch("/api/setup/config", {
+      const data = await safeFetchJson<any>("/api/setup/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ geminiKey, serverPort, clientTheme })
       });
-      const data = await response.json();
-      if (data.success) {
+      if (data && data.success) {
         setConfigurationSaved(true);
         onSaveConfig(geminiKey, serverPort, clientTheme);
         setTimeout(() => {

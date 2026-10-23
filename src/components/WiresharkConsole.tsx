@@ -19,34 +19,70 @@ import {
   Download
 } from "lucide-react";
 import { CapturedPacket } from "../types";
+import { safeFetchJson } from "../lib/api";
+import WindowCard from "./WindowCard";
 
 interface WiresharkConsoleProps {
   onAddFirewallRule: (rule: { name: string; port: string; protocol: "TCP" | "UDP" | "All"; direction: "Inbound"; action: "Block" }) => void;
   onGenerateThreatReport: (report: { scanData: any; packetsData: any; sourceThreat: string }) => void;
+  initialPackets?: CapturedPacket[];
+  initialAiReport?: string;
+  isStartupCapturing?: boolean;
+  isStartupAiAnalyzing?: boolean;
 }
 
-export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatReport }: WiresharkConsoleProps) {
+export default function WiresharkConsole({
+  onAddFirewallRule,
+  onGenerateThreatReport,
+  initialPackets = [],
+  initialAiReport = "",
+  isStartupCapturing = false,
+  isStartupAiAnalyzing = false
+}: WiresharkConsoleProps) {
   const [interfaceName, setInterfaceName] = useState("");
   const [filterStr, setFilterStr] = useState("");
   const [isCapturing, setIsCapturing] = useState(false);
-  const [packets, setPackets] = useState<CapturedPacket[]>([]);
-  const [selectedPacketId, setSelectedPacketId] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [aiReportOutput, setAiReportOutput] = useState<string>("");
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [reportGenerated, setReportGenerated] = useState(false);
+  const [packets, setPackets] = useState<CapturedPacket[]>(initialPackets);
+  const [selectedPacketId, setSelectedPacketId] = useState<number | null>(initialPackets[0]?.id ?? null);
+  const [isLoading, setIsLoading] = useState(isStartupCapturing);
+  const [aiReportOutput, setAiReportOutput] = useState<string>(initialAiReport);
+  const [isAiLoading, setIsAiLoading] = useState(isStartupAiAnalyzing);
+  const [reportGenerated, setReportGenerated] = useState(Boolean(initialAiReport));
 
-  const packetsStreamRef = useRef<CapturedPacket[]>([]);
+  const packetsStreamRef = useRef<CapturedPacket[]>(initialPackets);
   const streamTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [interfaces, setInterfaces] = useState<Array<{ name: string; ip: string; type: string }>>([]);
+
+  // Sync startup packet capture and AI analysis into console state
+  useEffect(() => {
+    if (initialPackets.length > 0 && packets.length === 0) {
+      setPackets(initialPackets);
+      packetsStreamRef.current = initialPackets;
+      setSelectedPacketId(prev => prev ?? initialPackets[0].id);
+    }
+  }, [initialPackets]);
+
+  useEffect(() => {
+    setIsLoading(isStartupCapturing);
+  }, [isStartupCapturing]);
+
+  useEffect(() => {
+    setIsAiLoading(isStartupAiAnalyzing);
+  }, [isStartupAiAnalyzing]);
+
+  useEffect(() => {
+    if (initialAiReport && !aiReportOutput) {
+      setAiReportOutput(initialAiReport);
+      setReportGenerated(true);
+    }
+  }, [initialAiReport]);
 
   // Load the real host network interface list
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/network/interfaces");
-        const data = await res.json();
+        const data = await safeFetchJson<any>("/api/network/interfaces");
         if (data?.success && Array.isArray(data.interfaces)) {
           const mapped = data.interfaces.map((i: any) => ({
             name: i.interfaceName,
@@ -79,13 +115,17 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
 
     try {
       // Load initial batch of captured packets from backend simulator
-      const response = await fetch("/api/security/wireshark", {
+      const data = await safeFetchJson<any>("/api/security/wireshark", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filter: filterStr, count: 20, interfaceName })
       });
-      const data = await response.json();
       
+      if (!data || !data.packets) {
+        setIsLoading(false);
+        return;
+      }
+
       setPackets(data.packets);
       packetsStreamRef.current = data.packets;
       setIsLoading(false);
@@ -98,14 +138,13 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
       streamTimerRef.current = setInterval(async () => {
         // Fetch incremental next packets
         try {
-          const streamResponse = await fetch("/api/security/wireshark", {
+          const streamData = await safeFetchJson<any>("/api/security/wireshark", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ filter: filterStr, count: 2, interfaceName })
           });
-          const streamData = await streamResponse.json();
           
-          if (streamData.packets && streamData.packets.length > 0) {
+          if (streamData && streamData.packets && streamData.packets.length > 0) {
             const enrichedPackets = streamData.packets.map((p: any, idx: number) => ({
               ...p,
               id: nextId + idx
@@ -166,7 +205,7 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
       }));
 
       // Query AI to analyze captured packets
-      const response = await fetch("/api/security/ai-audit", {
+      const data = await safeFetchJson<any>("/api/security/ai-audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -176,7 +215,12 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
             : `General packet capture audit on interface ${interfaceName}`
         })
       });
-      const data = await response.json();
+
+      if (!data) {
+        setAiReportOutput("Unable to generate AI Threat Report. Server may be unreachable.");
+        setIsAiLoading(false);
+        return;
+      }
 
       let auditText = `=== NETGUARD AI WIRESHARK ANALYST AGENT ===\n`;
       auditText += `Audit Timestamp: ${new Date().toLocaleString()}\n`;
@@ -275,8 +319,8 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
               disabled={isCapturing}
               className="bg-[#0b0c0f] border border-[#24283b] rounded text-xs text-[#a9b1d6] px-2 py-1 focus:outline-none focus:border-[#e0af68] font-mono h-7 cursor-pointer"
             >
-              {interfaces.map(i => (
-                <option key={i.name} value={i.name} className="font-mono">
+              {interfaces.map((i, idx) => (
+                <option key={`${i.name}-${i.ip}-${idx}`} value={i.name} className="font-mono">
                   {i.name} ({i.ip}) - {i.type}
                 </option>
               ))}
@@ -335,22 +379,23 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
       </div>
 
       {/* Interactive Wireshark Panes (Packet list grid + dissection details + hex offsets) */}
-      <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-3 min-h-[300px]">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
         {/* Packets Stream list (8/12) */}
-        <div className="xl:col-span-8 bg-[#1a1b26] border border-[#24283b] rounded flex flex-col overflow-hidden h-[380px] xl:h-full">
-          {/* List Title Header */}
-          <div className="p-2 border-b border-[#24283b] bg-[#16161e] flex justify-between items-center text-[10px] uppercase font-bold text-[#565f89] font-mono select-none">
-            <span className="flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5" />
-              Captured Frame Buffer ({packets.length} Packet Rows)
-            </span>
-            {isCapturing && (
-              <span className="text-[#9ece6a] flex items-center gap-1 font-bold animate-pulse">
+        <WindowCard
+          id="wireshark-frame-buffer"
+          title={`Captured Frame Buffer (${packets.length} Packet Rows)`}
+          icon={<Database className="w-3.5 h-3.5 text-[#7aa2f7]" />}
+          className="xl:col-span-8"
+          defaultHeight={380}
+          minHeight={220}
+          badge={
+            isCapturing ? (
+              <span className="text-[#9ece6a] flex items-center gap-1 text-[9px] font-mono font-bold animate-pulse">
                 ● Live Streaming Sockets
               </span>
-            )}
-          </div>
-
+            ) : undefined
+          }
+        >
           {/* Wireshark Header Columns */}
           <div className="bg-[#111219] border-b border-[#24283b] grid grid-cols-12 text-[10px] font-bold font-mono text-[#565f89] py-1.5 px-3 uppercase select-none shrink-0">
             <div className="col-span-1">No.</div>
@@ -396,24 +441,26 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
               ))
             )}
           </div>
-        </div>
+        </WindowCard>
 
         {/* Packet Inspector (4/12) */}
-        <div className="xl:col-span-4 flex flex-col gap-3 h-full overflow-hidden">
+        <div className="xl:col-span-4 flex flex-col gap-3">
           {/* Inspector Details block */}
-          <div className="flex-1 bg-[#1a1b26] border border-[#24283b] rounded flex flex-col overflow-hidden max-h-[220px]">
-            <div className="p-2 border-b border-[#24283b] bg-[#16161e] flex items-center gap-1.5 text-[10px] uppercase font-bold text-[#565f89] font-mono">
-              <Eye className="w-3.5 h-3.5" />
-              Frame Dissect Analyzer
-            </div>
+          <WindowCard
+            id="wireshark-frame-dissect"
+            title="Frame Dissect Analyzer"
+            icon={<Eye className="w-3.5 h-3.5 text-[#e0af68]" />}
+            defaultHeight={210}
+            minHeight={130}
+          >
             <div className="flex-1 p-3 overflow-y-auto font-mono text-[10px] space-y-2 select-text bg-[#0b0c0f]/40">
               {!selectedPacket ? (
-                <div className="text-[#565f89] italic text-center py-10">Select a captured row packet to expand header offsets.</div>
+                <div className="text-[#565f89] italic text-center py-8">Select a captured row packet to expand header offsets.</div>
               ) : (
                 <div className="space-y-2">
                   <div className="border-b border-[#24283b]/60 pb-1.5 mb-1.5">
                     <div className="font-bold text-slate-200">Frame {selectedPacket.id}: {selectedPacket.length} bytes captured</div>
-                    <div className="text-[9px] text-[#565f89]">Interingress link layer payload details:</div>
+                    <div className="text-[9px] text-[#565f89]">Ingress link layer payload details:</div>
                   </div>
 
                   {/* Header breakdown details */}
@@ -456,14 +503,16 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
                 </div>
               )}
             </div>
-          </div>
+          </WindowCard>
 
           {/* Hex Memory offsets block */}
-          <div className="flex-1 bg-[#1a1b26] border border-[#24283b] rounded flex flex-col overflow-hidden max-h-[160px]">
-            <div className="p-2 border-b border-[#24283b] bg-[#16161e] flex items-center gap-1.5 text-[10px] uppercase font-bold text-[#565f89] font-mono">
-              <Fingerprint className="w-3.5 h-3.5" />
-              Raw Hex & ASCII Offsets
-            </div>
+          <WindowCard
+            id="wireshark-hex-offsets"
+            title="Raw Hex & ASCII Offsets"
+            icon={<Fingerprint className="w-3.5 h-3.5 text-[#9ece6a]" />}
+            defaultHeight={160}
+            minHeight={110}
+          >
             <div className="flex-1 p-2 font-mono text-[9px] bg-[#0b0c0f] select-text overflow-auto leading-relaxed text-[#7aa2f7]">
               {!selectedPacket ? (
                 <div className="text-[#565f89] italic text-center py-6">Select a captured frame packet to view raw offsets.</div>
@@ -474,18 +523,19 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
                 </div>
               )}
             </div>
-          </div>
+          </WindowCard>
         </div>
       </div>
 
       {/* Real-time Agentic AI Threat Hunter Analysis container */}
-      <div className="bg-[#1a1b26] border border-[#24283b] rounded overflow-hidden flex flex-col shrink-0 min-h-[160px]">
-        <div className="px-3 py-1.5 border-b border-[#24283b] bg-[#16161e] flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase text-[#bb9af7] font-mono flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-            AI Agentic Threat Hunter Analyst
-          </span>
-          {packets.length > 0 && (
+      <WindowCard
+        id="wireshark-ai-analyst"
+        title="AI Agentic Threat Hunter Analyst"
+        icon={<Sparkles className="w-3.5 h-3.5 text-[#bb9af7] animate-pulse" />}
+        defaultHeight={200}
+        minHeight={130}
+        headerRight={
+          packets.length > 0 ? (
             <button
               onClick={handleAnalyzeTraceAI}
               disabled={isAiLoading}
@@ -507,9 +557,9 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
                 </>
               )}
             </button>
-          )}
-        </div>
-
+          ) : undefined
+        }
+      >
         <div className="p-3 bg-[#0b0c0f]/35 flex-1 font-mono text-[10px] overflow-y-auto whitespace-pre-wrap leading-relaxed">
           {isAiLoading ? (
             <div className="py-6 text-center text-[#bb9af7] flex items-center justify-center gap-2 font-bold uppercase tracking-widest text-[9px] animate-pulse">
@@ -538,7 +588,7 @@ export default function WiresharkConsole({ onAddFirewallRule, onGenerateThreatRe
             </div>
           )}
         </div>
-      </div>
+      </WindowCard>
     </div>
   );
 }

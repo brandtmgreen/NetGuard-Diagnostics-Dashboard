@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Sidebar from "./components/Sidebar";
 import DashboardOverview from "./components/DashboardOverview";
 import TaskManager from "./components/TaskManager";
@@ -9,10 +9,14 @@ import TerminalConsole from "./components/TerminalConsole";
 import NmapScanner from "./components/NmapScanner";
 import WiresharkConsole from "./components/WiresharkConsole";
 import InstallationWizard from "./components/InstallationWizard";
+import BootLoader from "./components/BootLoader";
 import AppConfiguration from "./components/AppConfiguration";
-import { Device, Process, ThreatLog, FirewallRule, TerminalLine, SystemAlert, PlannerTask, SuspiciousActivity, ThemeMode, AppConfig } from "./types";
+import SystemHardeningAudit from "./components/SystemHardeningAudit";
+import { Device, Process, ThreatLog, FirewallRule, TerminalLine, SystemAlert, PlannerTask, SuspiciousActivity, ThemeMode, AppConfig, CapturedPacket } from "./types";
+import { safeFetchJson } from "./lib/api";
 
 export default function App() {
+  const [systemReady, setSystemReady] = useState(true);
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [securityScore, setSecurityScore] = useState<number>(94);
 
@@ -77,6 +81,34 @@ export default function App() {
 
   // 5. System alerts (derived from real resource/threat telemetry)
   const [alerts, setAlerts] = useState<SystemAlert[]>([]);
+  const notifiedAlertIds = useRef<Set<string>>(new Set());
+
+  // Request browser notification permission on load
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Trigger OS-level notifications for critical system alerts
+  useEffect(() => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    alerts.forEach((alert) => {
+      if (alert.severity === "critical" && !notifiedAlertIds.current.has(alert.id)) {
+        // Mark as notified
+        notifiedAlertIds.current.add(alert.id);
+        
+        // Trigger OS notification
+        new Notification("NetGuard Critical Alert", {
+          body: alert.message,
+          icon: "/favicon.ico", // Using default icon if available
+          tag: alert.id,
+          requireInteraction: true
+        });
+      }
+    });
+  }, [alerts]);
 
   // 6. Interactive Terminal lines state
   const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([
@@ -85,9 +117,13 @@ export default function App() {
   ]);
   const [isTerminalLoading, setIsTerminalLoading] = useState(false);
 
-  // 7. Security Scanning states
+  // 7. Security Scanning & Startup Packet Capture + AI Analysis states
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  const [startupPackets, setStartupPackets] = useState<CapturedPacket[]>([]);
+  const [startupAiReport, setStartupAiReport] = useState<string>("");
+  const [isStartupCapturing, setIsStartupCapturing] = useState<boolean>(false);
+  const [isStartupAiAnalyzing, setIsStartupAiAnalyzing] = useState<boolean>(false);
 
   // 8. Security Task Planner state (loaded + persisted via /api/tasks)
   const [plannerTasks, setPlannerTasks] = useState<PlannerTask[]>([]);
@@ -124,25 +160,22 @@ export default function App() {
 
   const refreshSystem = async () => {
     try {
-      const res = await fetch("/api/system/status");
-      const data = await res.json();
+      const data = await safeFetchJson<any>("/api/system/status");
       if (data && data.hostname) setHostStatus(data);
     } catch (err) { console.error("Failed to refresh system status:", err); }
   };
 
   const refreshProcesses = async () => {
     try {
-      const res = await fetch("/api/system/processes?limit=2000");
-      const data = await res.json();
-      if (Array.isArray(data.processes)) setProcesses(data.processes.map(mapSystemProcess));
+      const data = await safeFetchJson<{ processes: any[] }>("/api/system/processes?limit=2000");
+      if (data && Array.isArray(data.processes)) setProcesses(data.processes.map(mapSystemProcess));
     } catch (err) { console.error("Failed to refresh processes:", err); }
   };
 
   const refreshThreats = async () => {
     try {
-      const res = await fetch("/api/security/live-threats");
-      const data = await res.json();
-      if (Array.isArray(data.threats)) {
+      const data = await safeFetchJson<{ threats: any[] }>("/api/security/live-threats");
+      if (data && Array.isArray(data.threats)) {
         setSuspiciousActivities(data.threats.map((t: any) => ({
           id: t.id,
           timestamp: t.timestamp,
@@ -164,8 +197,7 @@ export default function App() {
 
   const refreshTraffic = async () => {
     try {
-      const res = await fetch("/api/system/traffic?sample=1000");
-      const data = await res.json();
+      const data = await safeFetchJson<{ totalMbps?: number }>("/api/system/traffic?sample=1000");
       if (typeof data?.totalMbps === "number") {
         setTrafficMbps(data.totalMbps);
       }
@@ -191,19 +223,15 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [rulesRes, tasksRes, alertsRes, neighborsRes] = await Promise.all([
-          fetch("/api/security/firewall/rules"),
-          fetch("/api/tasks"),
-          fetch("/api/alerts"),
-          fetch("/api/network/neighbors")
+        const [rules, tasks, storedAlerts, neighbors] = await Promise.all([
+          safeFetchJson<any[]>("/api/security/firewall/rules"),
+          safeFetchJson<any[]>("/api/tasks"),
+          safeFetchJson<any[]>("/api/alerts"),
+          safeFetchJson<any>("/api/network/neighbors")
         ]);
-        const rules = await rulesRes.json();
         if (Array.isArray(rules)) setFirewallRules(rules);
-        const tasks = await tasksRes.json();
         if (Array.isArray(tasks)) setPlannerTasks(tasks);
-        const storedAlerts = await alertsRes.json();
         if (Array.isArray(storedAlerts) && storedAlerts.length > 0) setAlerts(storedAlerts);
-        const neighbors = await neighborsRes.json();
         if (neighbors?.success && Array.isArray(neighbors.devices)) {
           const mapped = neighbors.devices.map((d: any) => ({
             ip: d.ip,
@@ -219,6 +247,132 @@ export default function App() {
         }
       } catch (err) { console.error("Failed to hydrate persisted state:", err); }
     })();
+  }, []);
+
+  // Automatic Startup Packet Capture, Host Integrity Scan, and AI Security Analysis
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIsStartupCapturing(true);
+      setTerminalLines(prev => [
+        ...prev,
+        {
+          text: "[STARTUP] Initiating automatic live packet capture and AI security audit...",
+          type: "info",
+          timestamp: new Date().toLocaleTimeString()
+        }
+      ]);
+
+      // Also run live host integrity scan on startup
+      handleRunSecurityScan();
+
+      try {
+        // 1. Capture live packets from host kernel/capture interface
+        const capData = await safeFetchJson<any>("/api/security/wireshark", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filter: "", count: 25 })
+        });
+
+        const captured: CapturedPacket[] = Array.isArray(capData?.packets) ? capData.packets : [];
+        if (cancelled) return;
+        setStartupPackets(captured);
+        setIsStartupCapturing(false);
+
+        setTerminalLines(prev => [
+          ...prev,
+          {
+            text: `[STARTUP CAPTURE] Captured ${captured.length} live socket frame(s) via ${capData?.engine || "host kernel"}. Launching Gemini AI Threat Hunter analysis...`,
+            type: "info",
+            timestamp: new Date().toLocaleTimeString()
+          }
+        ]);
+
+        // 2. Run live AI Security Audit on the captured packets and current host telemetry
+        setIsStartupAiAnalyzing(true);
+        const suspectPackets = captured.filter(p => p.severity === "critical" || p.severity === "warning");
+        const sampleTrace = captured.slice(0, 15).map(p => ({
+          no: p.id,
+          time: p.timestamp,
+          src: p.source,
+          dst: p.destination,
+          proto: p.protocol,
+          len: p.length,
+          info: p.info,
+          hasThreatSignature: p.severity !== "normal"
+        }));
+
+        const aiData = await safeFetchJson<any>("/api/security/ai-audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            packetsData: { interface: "all", filter: "", packetsSample: sampleTrace },
+            sourceThreat:
+              suspectPackets.length > 0
+                ? `Startup Packet Capture Anomaly: ${suspectPackets[0].info}`
+                : `Startup Live Packet Capture & Host Security Audit (${captured.length} frames)`
+          })
+        });
+
+        if (cancelled) return;
+
+        if (aiData && aiData.title) {
+          let auditText = `=== NETGUARD STARTUP AI SECURITY AUDIT ===\n`;
+          auditText += `Timestamp: ${new Date().toLocaleString()}\n`;
+          auditText += `Classification: ${aiData.title}\n`;
+          auditText += `Severity: [${String(aiData.severity || "info").toUpperCase()}]\n`;
+          auditText += `Attack Vector: ${aiData.attackVector}\n\n`;
+          auditText += `Executive Summary:\n${aiData.executiveSummary}\n\n`;
+          if (Array.isArray(aiData.findings) && aiData.findings.length > 0) {
+            auditText += `Key Findings:\n`;
+            aiData.findings.forEach((f: string, i: number) => {
+              auditText += `  [${i + 1}] ${f}\n`;
+            });
+          }
+          if (Array.isArray(aiData.mitigations) && aiData.mitigations.length > 0) {
+            auditText += `\nRecommended Mitigations:\n`;
+            aiData.mitigations.forEach((m: any, i: number) => {
+              auditText += `  [${i + 1}] ${m.action} (${String(m.type || "").toUpperCase()}): ${m.details}\n`;
+            });
+          }
+
+          setStartupAiReport(auditText);
+          setRefreshReportsTrigger(prev => prev + 1);
+          setTerminalLines(prev => [
+            ...prev,
+            {
+              text: `[STARTUP AI AUDIT] Completed: ${aiData.title} [Severity: ${String(aiData.severity || "info").toUpperCase()}]. Full report logged to Security Reports & Wireshark Console.`,
+              type: "ai",
+              timestamp: new Date().toLocaleTimeString()
+            }
+          ]);
+        } else {
+          const errMsg = aiData?.error || "AI Security Auditor returned no report (verify GEMINI_API_KEY configuration).";
+          setStartupAiReport(`[AI AUDIT UNAVAILABLE] ${errMsg}`);
+          setTerminalLines(prev => [
+            ...prev,
+            {
+              text: `[STARTUP AI AUDIT] ${errMsg}`,
+              type: "error",
+              timestamp: new Date().toLocaleTimeString()
+            }
+          ]);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setStartupAiReport(`[STARTUP AUDIT ERROR] ${err?.message || err}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsStartupCapturing(false);
+          setIsStartupAiAnalyzing(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Derive security score from real telemetry + live threat pressure
@@ -317,17 +471,16 @@ export default function App() {
     }
 
     try {
-      const response = await fetch("/api/terminal/run", {
+      const data = await safeFetchJson<any>("/api/terminal/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: formattedCmd })
       });
 
-      const data = await response.json();
       const outputType = formattedCmd.toLowerCase().startsWith("ai ") || formattedCmd.toLowerCase() === "ai" ? "ai" : "output";
 
       setTerminalLines(prev => [...prev, {
-        text: data.output || "No stdout printed.",
+        text: data?.output || "No stdout printed.",
         type: outputType,
         timestamp: new Date().toLocaleTimeString()
       }]);
@@ -356,8 +509,7 @@ export default function App() {
 
   const handleSpawnTask = async (parentPid?: number) => {
     try {
-      const res = await fetch("/api/system/spawn", { method: "POST" });
-      const data = await res.json();
+      const data = await safeFetchJson<any>("/api/system/spawn", { method: "POST" });
       if (!data?.success) throw new Error(data?.error || "spawn failed");
       setTerminalLines(prev => [...prev, {
         text: `[INFO] Spawned real background process: ${data.name} (PID ${data.pid}, duration ${data.args?.[0] ?? "?"}s)${parentPid ? ` under Parent PID ${parentPid}` : ""}.`,
@@ -487,20 +639,8 @@ export default function App() {
     await handleRunCommand(`ai explain security vulnerabilities on ${ip}`);
   };
 
-  const handleToggleDeviceStatus = (ip: string) => {
-    setDevices(prev => prev.map(d => {
-      if (d.ip === ip) {
-        const nextStatus = d.status === "Online" ? "Offline" : "Online";
-        return {
-          ...d,
-          status: nextStatus,
-          cpu: nextStatus === "Online" ? 15 : 0,
-          memory: nextStatus === "Online" ? 25 : 0,
-          ping: nextStatus === "Online" ? "10ms" : "---"
-        };
-      }
-      return d;
-    }));
+  const handleToggleDeviceStatus = async (ip: string) => {
+    await handleRunCommand(`ping ${ip}`);
   };
 
   const handleImportDevices = (newDevices: Device[]) => {
@@ -543,19 +683,17 @@ export default function App() {
     setScanResult(null);
 
     try {
-      const [threatsRes, statusRes] = await Promise.all([
-        fetch("/api/security/live-threats"),
-        fetch("/api/system/status")
+      const [threats, status] = await Promise.all([
+        safeFetchJson<any>("/api/security/live-threats"),
+        safeFetchJson<any>("/api/system/status")
       ]);
-      const threats = await threatsRes.json();
-      const status = await statusRes.json();
-      const active = Array.isArray(threats.threats) ? threats.threats.filter((t: any) => t.status === "active") : [];
+      const active = Array.isArray(threats?.threats) ? threats.threats.filter((t: any) => t.status === "active") : [];
       const critical = active.filter((t: any) => t.severity === "critical" || t.severity === "high").length;
       const medium = active.filter((t: any) => t.severity === "medium").length;
 
       setScanResult(`[NetGuard Security Shield - Live Host Scan Report]
 Timestamp: ${new Date().toLocaleString()}
-Scan Mode: Live telemetry (host ${status.hostname || "unknown"})
+Scan Mode: Live telemetry (host ${status?.hostname || "unknown"})
 
 1. Memory Pressure............ ${status.usedMemPercent ?? 0}% ${(status.usedMemPercent ?? 0) > 85 ? "WARN" : "CLEAN"}
 2. Disk Utilization........... ${status.diskUsedPercent ?? 0}% ${(status.diskUsedPercent ?? 0) > 90 ? "WARN" : "CLEAN"}
@@ -618,21 +756,21 @@ Could not reach diagnostic daemon. Details: ${err?.message || err}`);
   };
 
   // Persist firewall rules to the real pf anchor via the apply endpoint
-  const persistFirewall = (rules: FirewallRule[]) => {
-    fetch("/api/security/firewall/apply", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rules })
-    })
-      .then(r => r.json())
-      .then((res: any) => {
-        setTerminalLines(prev => [...prev, {
-          text: `[PFCTL] ${res?.message || "Firewall ruleset synced."}${res?.error ? ` (${res.error})` : ""}`,
-          type: res?.success ? "info" : "error",
-          timestamp: new Date().toLocaleTimeString()
-        }]);
-      })
-      .catch(() => {});
+  const persistFirewall = async (rules: FirewallRule[]) => {
+    try {
+      const res = await safeFetchJson<any>("/api/security/firewall/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules })
+      });
+      setTerminalLines(prev => [...prev, {
+        text: `[PFCTL] ${res?.message || "Firewall ruleset synced."}${res?.error ? ` (${res.error})` : ""}`,
+        type: res?.success ? "info" : "error",
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    } catch {
+      // Ignored
+    }
   };
 
   // Derived header/footer telemetry
@@ -649,6 +787,10 @@ Could not reach diagnostic daemon. Details: ${err?.message || err}`);
   })();
   const pingValues = devices.filter(d => d.status === "Online").map(d => parseInt(d.ping)).filter(n => !isNaN(n));
   const avgPing = pingValues.length ? Math.round(pingValues.reduce((a, b) => a + b, 0) / pingValues.length) : null;
+
+  if (!systemReady) {
+    return <BootLoader onReady={() => setSystemReady(true)} />;
+  }
 
   return (
     <div className="bg-[#0b0c0f] text-[#a9b1d6] font-sans h-screen w-screen flex flex-col overflow-hidden select-none border border-[#1a1b26]">
@@ -757,6 +899,10 @@ Could not reach diagnostic daemon. Details: ${err?.message || err}`);
               loadPercent={loadPercent}
               hostname={hostStatus?.hostname || ""}
               onRefresh={refreshAll}
+              startupPackets={startupPackets}
+              startupAiReport={startupAiReport}
+              isStartupCapturing={isStartupCapturing}
+              isStartupAiAnalyzing={isStartupAiAnalyzing}
             />
           )}
 
@@ -764,7 +910,9 @@ Could not reach diagnostic daemon. Details: ${err?.message || err}`);
             <TaskManager 
               processes={processes} 
               onEndTask={handleEndTask} 
-              onSpawnTask={handleSpawnTask} 
+              onSpawnTask={handleSpawnTask}
+              cpuCount={hostStatus?.cpuCount}
+              totalMemBytes={hostStatus?.totalMemBytes}
             />
           )}
 
@@ -800,6 +948,21 @@ Could not reach diagnostic daemon. Details: ${err?.message || err}`);
             <WiresharkConsole 
               onAddFirewallRule={handleAddFirewallRule}
               onGenerateThreatReport={handleGenerateThreatReport}
+              initialPackets={startupPackets}
+              initialAiReport={startupAiReport}
+              isStartupCapturing={isStartupCapturing}
+              isStartupAiAnalyzing={isStartupAiAnalyzing}
+            />
+          )}
+
+          {activeTab === "lynis" && (
+            <SystemHardeningAudit
+              onLogTerminal={(text, type = "info") =>
+                setTerminalLines((prev) => [
+                  ...prev,
+                  { text, type, timestamp: new Date().toLocaleTimeString() },
+                ])
+              }
             />
           )}
 

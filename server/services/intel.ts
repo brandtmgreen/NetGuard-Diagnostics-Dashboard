@@ -145,7 +145,7 @@ async function fetchRdatWhois(ip: string): Promise<string | null> {
 }
 
 async function runRealTraceroute(ip: string): Promise<TracerouteHop[]> {
-  const res = await run("/usr/sbin/traceroute", ["-n", "-m", "20", "-w", "1", "-q", "1", ip], {
+  const res = await run("tracert", ["-n", "-m", "20", "-w", "1", "-q", "1", ip], {
     timeout: 60000,
     maxBuffer: 4 * 1024 * 1024,
   });

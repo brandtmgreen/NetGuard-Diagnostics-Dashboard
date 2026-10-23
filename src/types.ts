@@ -160,3 +160,96 @@ export interface AppConfig {
   maxPacketCapture: number;
 }
 
+export type AuditCheckStatus = "OK" | "SUGGESTION" | "WARNING" | "CRITICAL";
+
+export type AuditCategory =
+  | "Kernel & Boot"
+  | "Authentication & Access"
+  | "Filesystem & Permissions"
+  | "Network & Firewall"
+  | "SSH & Services"
+  | "Logging & Integrity";
+
+export interface LynisAuditCheck {
+  id: string;
+  category: AuditCategory;
+  title: string;
+  status: AuditCheckStatus;
+  currentValue: string;
+  expectedValue: string;
+  humanExplanation: string;
+  remediationCommand?: string;
+  rollbackCommand?: string;
+  riskImpact: "Low" | "Medium" | "High";
+}
+
+export interface GroundingReference {
+  title: string;
+  uri: string;
+}
+
+export interface AiRemediationPlanItem {
+  id: string;
+  findingId: string;
+  title: string;
+  humanSummary: string;
+  whyItMatters: string;
+  command: string;
+  rollbackCommand: string;
+  riskLevel: "Low" | "Medium" | "High";
+  requiresPrivilege: boolean;
+}
+
+export interface LynisAuditReport {
+  auditId: string;
+  timestamp: string;
+  hostname: string;
+  platform: string;
+  kernelVersion: string;
+  lynisBinaryDetected: boolean;
+  hardeningIndex: number;
+  totalChecks: number;
+  okCount: number;
+  suggestionCount: number;
+  warningCount: number;
+  criticalCount: number;
+  checks: LynisAuditCheck[];
+  aiAnalysis?: {
+    executiveSummary: string;
+    plainEnglishOverview: string;
+    remediationPlan: AiRemediationPlanItem[];
+    groundingSources: GroundingReference[];
+    generatedAt: string;
+  };
+}
+
+export interface HistoricalLoadBucket {
+  minuteTimestamp: number; // start of minute (epoch ms)
+  minutesAgo: number; // 59 down to 0
+  label: string; // HH:MM
+  cpuAvg: number; // 0-100%
+  cpuPeak: number; // 0-100%
+  ramAvg: number; // 0-100%
+  ramPeak: number; // 0-100%
+  loadAvg1m: number; // raw kernel 1m load average
+  coreLoads: number[]; // per-core CPU %
+  sampleCount: number;
+  source: "live-sampler" | "kernel-telemetry";
+}
+
+export interface HistoricalLoadResponse {
+  hostname: string;
+  cpuCount: number;
+  cpuModel: string;
+  totalMemGb: number;
+  uptimeSeconds: number;
+  currentCpuPercent: number;
+  currentRamPercent: number;
+  loadAvg: number[];
+  peakCpu60m: { value: number; label: string; minutesAgo: number };
+  peakRam60m: { value: number; label: string; minutesAgo: number };
+  spikeCount60m: number;
+  buckets: HistoricalLoadBucket[];
+}
+
+

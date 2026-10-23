@@ -1,165 +1,91 @@
-// NetGuard Standalone Windows Desktop Application (Electron Bootstrap)
-// Manages Express backend lifecycle, health checks, and Chromium viewport
-
-const { app, BrowserWindow, dialog } = require("electron");
+// NetGuard Standalone Windows Window Controller (Electron Bootstrap)
+// Suitable for direct retail bundling, enterprise white-labeling, or standalone EXE packaging.
+const { app, BrowserWindow } = require("electron");
 const path = require("path");
 const { fork } = require("child_process");
-const http = require("http");
-const fs = require("fs");
+const net = require("net");
 
 let serverProcess = null;
 let mainWindow = null;
-const SERVER_PORT = 3000;
-const SERVER_URL = `http://localhost:${SERVER_PORT}`;
-const MAX_SERVER_RETRIES = 30;
-const SERVER_RETRY_DELAY = 100; // ms
 
-/**
- * Performs a health check on the Express server
- * @returns {Promise<boolean>}
- */
-async function isServerReady() {
+// Dynamically find available port to avoid crashing if 3000 is taken
+function getAvailablePort(startingAt = 3000) {
   return new Promise((resolve) => {
-    const req = http.get(`${SERVER_URL}/api/system/status`, (res) => {
-      resolve(res.statusCode === 200);
-      res.resume(); // Drain response
+    const server = net.createServer();
+    server.listen(startingAt, () => {
+      server.once("close", () => resolve(startingAt));
+      server.close();
     });
-    req.on("error", () => resolve(false));
-    req.setTimeout(500);
+    server.on("error", () => resolve(getAvailablePort(startingAt + 1)));
   });
 }
 
-/**
- * Waits for the Express server to become ready
- * @returns {Promise<boolean>}
- */
-async function waitForServer() {
-  console.log("[DESKTOP HOST] Waiting for Express server to be ready...");
-  for (let i = 0; i < MAX_SERVER_RETRIES; i++) {
-    if (await isServerReady()) {
-      console.log("[DESKTOP HOST] ✓ Express server is ready");
-      return true;
-    }
-    await new Promise((r) => setTimeout(r, SERVER_RETRY_DELAY));
-  }
-  console.error("[DESKTOP HOST] ✗ Server failed to start within timeout");
-  return false;
-}
+async function createWindow() {
+  const dynamicPort = await getAvailablePort(3000);
+  console.log(`[DESKTOP HOST] Selected dynamic port: ${dynamicPort}`);
 
-/**
- * Spawns the Express backend server as isolated process
- */
-function spawnServer() {
-  const serverPath = path.join(__dirname, "dist", "server.cjs");
-
+  // 1. Spawns compiled Node/Express production backend server as isolated system thread
+  const fs = require("fs");
+  let serverPath = path.join(__dirname, "dist", "server.cjs");
   if (!fs.existsSync(serverPath)) {
-    console.error(`[FATAL] Server executable not found at: ${serverPath}`);
-    console.error("[FATAL] Did you run 'npm run build' before launching?");
-    dialog.showErrorBox(
-      "NetGuard Launch Error",
-      `Server executable missing at: ${serverPath}\n\nPlease run 'npm run build' first.`
-    );
-    app.quit();
-    return false;
+    const candidatePaths = [
+      path.join(process.resourcesPath, "app.asar.unpacked", "dist", "server.cjs"),
+      path.join(process.resourcesPath, "dist", "server.cjs"),
+      path.join(__dirname, "server.cjs"),
+      path.join(process.cwd(), "dist", "server.cjs")
+    ];
+    for (const candidate of candidatePaths) {
+      if (fs.existsSync(candidate)) {
+        serverPath = candidate;
+        break;
+      }
+    }
   }
-
-  console.log(`[DESKTOP HOST] Spawning backend server: ${serverPath}`);
+  
+  console.log(`[DESKTOP HOST] Forking standalone background daemon: ${serverPath}`);
   serverProcess = fork(serverPath, [], {
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
-    env: {
+    env: { 
       ...process.env,
-      NODE_ENV: "production",
-      PORT: String(SERVER_PORT),
-    },
+      NODE_ENV: "production", 
+      PORT: dynamicPort.toString()
+    }
   });
 
-  // Log server output
-  if (serverProcess.stdout) {
-    serverProcess.stdout.on("data", (data) => {
-      console.log(`[EXPRESS SERVER] ${data.toString().trim()}`);
-    });
-  }
-  if (serverProcess.stderr) {
-    serverProcess.stderr.on("data", (data) => {
-      console.error(`[EXPRESS SERVER ERROR] ${data.toString().trim()}`);
-    });
-  }
+  serverProcess.on("message", (msg) => {
+    console.log(`[BACKGROUND SERVER] ${msg}`);
+  });
 
   serverProcess.on("error", (err) => {
-    console.error("[DESKTOP HOST] Server process error:", err);
+    console.error("[BACKGROUND SERVER FATAL]", err);
   });
 
-  serverProcess.on("exit", (code) => {
-    console.log(`[DESKTOP HOST] Server process exited with code ${code}`);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("server-crashed", { code });
-    }
-  });
-
-  return true;
-}
-
-/**
- * Creates the main Chromium BrowserWindow
- */
-async function createWindow() {
-  // Spawn server first
-  if (!spawnServer()) {
-    return;
-  }
-
-  // Wait for server to be ready
-  const serverReady = await waitForServer();
-  if (!serverReady) {
-    dialog.showErrorBox(
-      "NetGuard Startup Error",
-      "Failed to start backend server. Check logs for details."
-    );
-    if (serverProcess) {
-      serverProcess.kill();
-    }
-    app.quit();
-    return;
-  }
-
-  // Create window
+  // 2. Open high-fidelity hardware-accelerated Chromium viewport
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
-    title: "NetGuard Diagnostics & Security Control Dashboard",
+    width: 1300,
+    height: 850,
+    title: "NetGuard Diagnostics & Security Control Desk",
     backgroundColor: "#0b0c0f",
     autoHideMenuBar: true,
-    icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      enableRemoteModule: false,
-      preload: path.join(__dirname, "preload.cjs"),
-      devTools: process.env.NODE_ENV !== "production",
-    },
+      devTools: true // Kept active for technician diagnostic inspects
+    }
   });
 
-  mainWindow.loadURL(SERVER_URL);
-
-  if (process.env.NODE_ENV !== "production") {
-    mainWindow.webContents.openDevTools();
-  }
+  // Wait 1.5s for Express ports to arm, then render viewport
+  setTimeout(() => {
+    mainWindow.loadURL(`http://localhost:${dynamicPort}`);
+  }, 1500);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
-
-  console.log("[DESKTOP HOST] ✓ Application window opened");
 }
 
-/**
- * Enforce single instance
- */
-const singleInstanceLock = app.requestSingleInstanceLock();
-if (!singleInstanceLock) {
-  console.log("[DESKTOP HOST] Another instance is already running. Exiting.");
+// Limit instance execution concurrency
+const additionalClientInstance = app.requestSingleInstanceLock();
+if (!additionalClientInstance) {
   app.quit();
 } else {
   app.on("second-instance", () => {
@@ -172,12 +98,10 @@ if (!singleInstanceLock) {
   app.on("ready", createWindow);
 }
 
-/**
- * Cleanup on exit
- */
 app.on("window-all-closed", () => {
-  if (serverProcess && !serverProcess.killed) {
-    console.log("[DESKTOP HOST] Terminating backend server...");
+  // Gracefully terminate child threads upon console quit
+  if (serverProcess) {
+    console.log("[DESKTOP HOST] Terminating background server processes.");
     serverProcess.kill();
   }
   if (process.platform !== "darwin") {
@@ -185,22 +109,8 @@ app.on("window-all-closed", () => {
   }
 });
 
-/**
- * Handle app reactivation (macOS)
- */
 app.on("activate", () => {
   if (mainWindow === null) {
     createWindow();
   }
-});
-
-/**
- * Graceful shutdown on SIGTERM
- */
-process.on("SIGTERM", () => {
-  console.log("[DESKTOP HOST] SIGTERM received, shutting down gracefully...");
-  if (serverProcess && !serverProcess.killed) {
-    serverProcess.kill();
-  }
-  app.quit();
 });

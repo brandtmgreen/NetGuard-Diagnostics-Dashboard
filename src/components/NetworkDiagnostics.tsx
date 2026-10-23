@@ -21,6 +21,8 @@ import {
   AlertCircle
 } from "lucide-react";
 import { Device } from "../types";
+import { safeFetchJson } from "../lib/api";
+import WindowCard from "./WindowCard";
 
 interface NetworkDiagnosticsProps {
   devices: Device[];
@@ -69,10 +71,9 @@ export default function NetworkDiagnostics({
     setSelectedDiscoveredIp(null);
 
     try {
-      const res = await fetch("/api/network/discover");
-      const data = await res.json();
+      const data = await safeFetchJson<any>("/api/network/discover");
       
-      if (data.success) {
+      if (data && data.success) {
         setServerNetInfo({
           hostname: data.hostname,
           platform: data.platform,
@@ -247,10 +248,25 @@ export default function NetworkDiagnostics({
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 min-h-[350px]">
         
         {/* Device List Section (7/12) */}
-        <div className="lg:col-span-7 bg-[#1a1b26] border border-[#24283b] rounded flex flex-col overflow-hidden">
+        <div className="lg:col-span-7">
+          <WindowCard
+            id="net_topology_map"
+            title="Network Topology & Discovery Map"
+            icon={<Wifi className="w-4 h-4 text-[#7aa2f7]" />}
+            subtitle="Local subnet segment map, active nodes, and ping latency"
+            defaultHeight={480}
+            minHeight={280}
+            maxHeight={800}
+            badge={
+              <span className="text-[9px] font-mono text-[#7aa2f7] bg-[#7aa2f7]/10 border border-[#7aa2f7]/20 px-2 py-0.5 rounded">
+                {devices.filter(d => d.status === "Online").length}/{devices.length} ONLINE
+              </span>
+            }
+          >
+            <div className="flex flex-col h-full overflow-hidden">
           
           {/* List/Map Header & View Switcher */}
-          <div className="p-2 border-b border-[#24283b] bg-[#16161e] flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
+          <div className="p-2 border-b border-[#24283b] bg-[#16161e] flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between shrink-0">
             <div className="flex items-center gap-1.5 bg-[#0b0c0f] border border-[#24283b] p-0.5 rounded">
               <button
                 onClick={() => setViewMode("map")}
@@ -892,21 +908,44 @@ export default function NetworkDiagnostics({
               </div>
             </div>
           )}
+            </div>
+          </WindowCard>
         </div>
 
         {/* Diagnostic Details & Tools Panel (5/12) */}
-        <div className="lg:col-span-5 bg-[#1a1b26] border border-[#24283b] rounded flex flex-col p-3 overflow-y-auto space-y-3 justify-between">
-          {selectedDevice ? (
-            <div className="space-y-4">
-              {/* Header */}
-              <div className="border-b border-[#24283b] pb-2">
-                <span className="text-[10px] font-bold text-[#7aa2f7] uppercase tracking-wider block">Node Inspected</span>
-                <h3 className="font-bold text-sm text-slate-100">{selectedDevice.name}</h3>
-                <span className="font-mono text-xs text-[#565f89]">{selectedDevice.ip}</span>
-              </div>
+        <div className="lg:col-span-5">
+          <WindowCard
+            id="net_node_inspector"
+            title={selectedDevice ? `Node: ${selectedDevice.name}` : "Node Diagnostics"}
+            icon={<Activity className="w-4 h-4 text-[#bb9af7]" />}
+            subtitle={selectedDevice ? `${selectedDevice.ip} | ${selectedDevice.type}` : "Select a node to inspect sockets and telemetry"}
+            defaultHeight={480}
+            minHeight={280}
+            maxHeight={800}
+            badge={
+              selectedDevice ? (
+                <span className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold border ${
+                  selectedDevice.status === "Online"
+                    ? "bg-[#9ece6a]/10 text-[#9ece6a] border-[#9ece6a]/20"
+                    : "bg-[#f7768e]/10 text-[#f7768e] border-[#f7768e]/20"
+                }`}>
+                  {selectedDevice.status.toUpperCase()}
+                </span>
+              ) : undefined
+            }
+          >
+            <div className="flex flex-col p-3 space-y-3 justify-between h-full">
+              {selectedDevice ? (
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="border-b border-[#24283b] pb-2">
+                    <span className="text-[10px] font-bold text-[#7aa2f7] uppercase tracking-wider block">Node Inspected</span>
+                    <h3 className="font-bold text-sm text-slate-100">{selectedDevice.name}</h3>
+                    <span className="font-mono text-xs text-[#565f89]">{selectedDevice.ip}</span>
+                  </div>
 
-              {/* Status and Toggle */}
-              <div className="flex justify-between items-center p-2 bg-[#16161e] border border-[#24283b] rounded">
+                  {/* Status and Toggle */}
+                  <div className="flex justify-between items-center p-2 bg-[#16161e] border border-[#24283b] rounded">
                 <div className="text-xs">
                   <span className="text-[#565f89] block text-[10px] font-mono">STATE POWER</span>
                   <span className={`font-bold ${selectedDevice.status === "Online" ? "text-[#9ece6a]" : "text-[#f7768e]"}`}>
@@ -1036,6 +1075,8 @@ export default function NetworkDiagnostics({
             <HelpCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#bb9af7]" />
             <p className="leading-tight">Run `tracert {selectedDevice?.ip || "192.168.1.1"}` in the Interactive Terminal to map routes to local subnet gateway router nodes.</p>
           </div>
+            </div>
+          </WindowCard>
         </div>
 
       </div>

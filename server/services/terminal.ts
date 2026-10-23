@@ -1,7 +1,9 @@
+import { exec } from "child_process";
 import { run } from "../lib/exec";
-import { getGeminiClient } from "../lib/gemini";
+import { getGeminiClient, callGeminiWithRetry } from "../lib/gemini";
 import { getStore } from "./store";
 import { getBandwidth, getProcesses, getSystemStatus } from "./system";
+import { runLynisEquivalentAudit } from "./lynisAudit";
 
 const HOST_BLOCKLIST = ["", "localhost", "127.0.0.1"];
 
@@ -12,7 +14,7 @@ function safeHostArg(arg: string): string {
 async function runPing(arg: string): Promise<string> {
   const host = safeHostArg(arg);
   if (!host) return "Usage: ping <ip_address_or_host>";
-  const res = await run("/sbin/ping", ["-c", "4", "-n", "-W", "3000", host], {
+  const res = await run("ping", ["-c", "4", "-n", "-W", "3000", host], {
     timeout: 20000,
     maxBuffer: 4 * 1024 * 1024,
   });
@@ -24,7 +26,7 @@ async function runPing(arg: string): Promise<string> {
 async function runTraceroute(arg: string): Promise<string> {
   const host = safeHostArg(arg);
   if (!host) return "Usage: tracert <ip_address_or_host>";
-  const res = await run("/usr/sbin/traceroute", ["-n", "-m", "30", "-w", "2", host], {
+  const res = await run("tracert", ["-n", "-m", "30", "-w", "2", host], {
     timeout: 45000,
     maxBuffer: 8 * 1024 * 1024,
   });
@@ -34,7 +36,7 @@ async function runTraceroute(arg: string): Promise<string> {
 }
 
 async function runNetstat(): Promise<string> {
-  const res = await run("/usr/sbin/netstat", ["-an"], {
+  const res = await run("netstat", ["-an"], {
     timeout: 12000,
     maxBuffer: 8 * 1024 * 1024,
   });
@@ -62,7 +64,7 @@ async function runTaskkill(arg: string): Promise<string> {
   if (Number.isNaN(pid) || pid <= 100) {
     return `[SAFETY] Refusing to kill PID ${pid}. NetGuard only permits terminating user processes (PID > 100) to protect the system.`;
   }
-  const res = await run("/bin/kill", ["-TERM", String(pid)], { timeout: 5000 });
+  const res = await run("kill", ["-TERM", String(pid)], { timeout: 5000 });
   if (res.ok) return `SUCCESS: Sent SIGTERM to process with PID ${pid}.`;
   if (res.code === 1 && res.stderr.includes("such process")) return `Error: No process with PID ${pid} exists.`;
   return `Error: Failed to terminate PID ${pid}. ${res.stderr.trim()}`;
@@ -70,8 +72,8 @@ async function runTaskkill(arg: string): Promise<string> {
 
 async function runSecurityScan(): Promise<string> {
   const [listening, netstatRes, procs, status] = await Promise.all([
-    run("/usr/sbin/lsof", ["-iTCP", "-sTCP:LISTEN", "-n", "-P"], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }),
-    run("/usr/sbin/netstat", ["-an"], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }),
+    run("lsof", ["-iTCP", "-sTCP:LISTEN", "-n", "-P"], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }),
+    run("netstat", ["-an"], { timeout: 8000, maxBuffer: 8 * 1024 * 1024 }),
     getProcesses(10),
     getSystemStatus(),
   ]);
@@ -125,9 +127,13 @@ async function runSystemCommand(cmd: string, args: string[]): Promise<string> {
 
 async function aiQuery(query: string): Promise<string> {
   const ai = getGeminiClient();
-  if (ai) {
-    try {
-      const prompt = `You are a Windows Cybersecurity & Network Diagnostics command-line advisor integrated into a professional NetGuard console.
+  if (!ai) {
+    return `[ERROR] Live AI Advisor unavailable: GEMINI_API_KEY is not configured in Settings > Secrets.`;
+  }
+
+  const status = await getSystemStatus();
+  const prompt = `You are a Windows Cybersecurity & Network Diagnostics command-line advisor integrated into a professional NetGuard console.
+Host context: ${status.hostname} (${status.platform} ${status.release}, CPU cores: ${status.cpuCount}, Memory used: ${status.usedMemPercent}%).
 The user is querying the terminal with: "${query}".
 Provide a concise, detailed technical analysis, insight, or step-by-step advisory.
 
@@ -138,26 +144,75 @@ Strict formatting rules:
 4. Format lists with simple dashes or indentations.
 5. Emulate an expert system terminal utility output (use terms like [INFO], [WARN], [ADVISORY], or [RECOMMENDED ACTION]).`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
+  const res = await callGeminiWithRetry({ prompt, useSearch: true });
+  if (res.text) {
+    return res.text;
+  }
+  if (res.quotaExhausted) {
+    return `[ADVISORY] Gemini API free-tier quota (429 RESOURCE_EXHAUSTED) has been reached.\n[RECOMMENDED ACTION] Upgrading to a paid tier increases your quota. You can select a billing-enabled API key in the Settings > Secrets panel.\n[HOST TELEMETRY] ${status.hostname} (${status.platform} ${status.release}) | CPU Cores: ${status.cpuCount} | Memory Used: ${status.usedMemPercent}% | Disk Used: ${status.diskUsedPercent}%`;
+  }
+  return `[WARN] AI Advisor unavailable: ${res.errorMessage || "No response returned"}`;
+}
+
+async function executeRawShell(commandText: string): Promise<string> {
+  const isWin = process.platform === "win32";
+  const trimmed = commandText.trim();
+  if (!trimmed) return "";
+
+  if (isWin) {
+    return new Promise((resolve) => {
+      // Execute through PowerShell to support both Windows commands and bash aliases
+      exec(trimmed, {
+        shell: "powershell.exe",
+        timeout: 30000,
+        maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true,
+      }, (err, stdout, stderr) => {
+        const out = stdout ? stdout.trim() : "";
+        const errOut = stderr ? stderr.trim() : "";
+        if (err && !out && !errOut) {
+          resolve(`[ERROR] Command execution failed: ${err.message}`);
+          return;
+        }
+        resolve(out || errOut || `[Process completed with exit code ${err?.code ?? 0}]`);
       });
-
-      return response.text || "Error: No response generated from AI model.";
-    } catch (err: any) {
-      console.error("Gemini call failed:", err);
-      return `[ERROR] AI Advisor unavailable. Reason: ${err.message || err}\nFalling back to system logs.`;
+    });
+  } else {
+    // Non-Windows environment: map common Windows commands to bash equivalents if needed
+    let cmdToRun = trimmed;
+    const lower = trimmed.toLowerCase();
+    if (lower === "dir" || lower.startsWith("dir ")) {
+      cmdToRun = trimmed.replace(/^dir\b/i, "ls -la");
+    } else if (lower === "ipconfig" || lower.startsWith("ipconfig ")) {
+      cmdToRun = "ip -brief addr 2>/dev/null || ifconfig";
+    } else if (lower === "tasklist" || lower.startsWith("tasklist ")) {
+      cmdToRun = "ps -axo pid,ppid,%cpu,%mem,comm";
+    } else if (lower === "systeminfo") {
+      cmdToRun = "uname -a && cat /etc/os-release 2>/dev/null || true";
+    } else if (lower === "ver") {
+      cmdToRun = "uname -srm";
+    } else if (lower.startsWith("findstr ")) {
+      cmdToRun = trimmed.replace(/^findstr\b/i, "grep");
+    } else if (lower.startsWith("type ")) {
+      cmdToRun = trimmed.replace(/^type\b/i, "cat");
     }
-  }
 
-  const q = query.toLowerCase();
-  if (q.includes("port 445") || q.includes("smb")) {
-    return `[ADVISORY] SMB v1/v2 Vulnerability Scan (Port 445)\n- Status: Check local listening sockets with 'security-scan'\n- Risk: High (potentially vulnerable to EternalBlue/WannaCry if unpatched)\n- Action Required:\n  1. Block port 445 at firewall boundary\n  2. Disable SMBv1 support on Windows hosts\n  3. Apply security rollups KB4013389 immediately.`;
+    return new Promise((resolve) => {
+      exec(cmdToRun, {
+        shell: "/bin/bash",
+        timeout: 30000,
+        maxBuffer: 16 * 1024 * 1024,
+      }, (err, stdout, stderr) => {
+        const out = stdout ? stdout.trim() : "";
+        const errOut = stderr ? stderr.trim() : "";
+        if (err && !out && !errOut) {
+          resolve(`[ERROR] ${err.message}`);
+          return;
+        }
+        resolve(out || errOut || `[Process completed with exit code ${err?.code ?? 0}]`);
+      });
+    });
   }
-  if (q.includes("eternalblue") || q.includes("wannacry")) {
-    return `[THREAT BRIEF] EternalBlue (MS17-010)\n- Mechanism: Remote Code Execution via buffer overflow in Microsoft SMBv1\n- Recommended Defenses:\n  - Apply patch MS17-010\n  - Implement network segmentation for legacy Windows machines\n  - Deploy endpoint EDR signatures.`;
-  }
-  return `[INFO] AI Advisor is not configured (set GEMINI_API_KEY in .env).\n- Received query: "${query}"\n- Advisory: Run 'security-scan', 'netstat', and 'ai <question>' after configuring your key for live AI analysis.`;
 }
 
 export async function runTerminalCommand(command: string): Promise<string> {
@@ -173,38 +228,46 @@ export async function runTerminalCommand(command: string): Promise<string> {
   }
 
   if (lower === "help") {
-    return `NetGuard Diagnostic & Security Tools [Version 2.0 - REAL DATA MODE]
+    return `NetGuard Hybrid Terminal Suite [Windows PowerShell / CMD / Bash Console]
 (c) 2026 NetGuard Corporation. All rights reserved.
 
-Available Commands:
-  help                     Displays this help command glossary.
-  ping <ip_or_host>        Pings a target and returns real ICMP results.
-  tracert <ip_or_host>     Real multi-hop traceroute to a target.
-  netstat                  Live active network sockets on this host.
-  tasklist                 Real running processes (ps equivalent).
-  taskkill /PID <pid>      Terminates a user process (PID > 100) with SIGTERM.
-  security-scan            Live scan of listening sockets + system health.
-  alert-log                Security events recorded by NetGuard.
-  ifconfig / ipconfig      Real interface configuration.
-  whoami | hostname | uptime   Real system identity and uptime.
-  ai <question>            Queries the server-side AI Cybersecurity engine.
-  cls                      Clears the terminal window screen.`;
+FULL SHELL PASS-THROUGH ACTIVE:
+  All Windows commands and Bash shell commands execute directly on the host machine.
+
+Special Built-in Diagnostic Routines:
+  lynis                    Run Lynis-equivalent system hardening & compliance audit.
+  security-scan            Live scan of listening sockets, memory, and attack surfaces.
+  alert-log                Security events & alerts recorded by NetGuard.
+  bandwidth                Live real-time adapter throughput meter.
+  sysinfo                  Formatted host hardware & kernel diagnostics.
+  ai <question>            Consult the built-in Gemini Security Advisory Engine.
+  cls / clear              Clears the console viewport.
+
+Supported Commands (Examples):
+  Windows:  dir, ipconfig, netstat -ano, tasklist, taskkill, systeminfo, netsh, tracert, ping, whoami, tree, reg, get-process
+  Bash:     ls -la, ifconfig, ps aux, pwd, cat, grep, curl, uname -a, free, df -h, head, tail, echo, which`;
   }
 
-  if (lower.startsWith("ping ")) return runPing(trimmed.substring(5));
-  if (lower.startsWith("tracert ")) return runTraceroute(trimmed.substring(8));
-  if (lower === "traceroute") return runTraceroute("");
-  if (lower.startsWith("traceroute ")) return runTraceroute(trimmed.substring(11));
-  if (lower === "netstat") return runNetstat();
-  if (lower === "tasklist") return runTasklist();
-  if (lower.startsWith("taskkill")) return runTaskkill(trimmed.substring(9));
+  // NetGuard built-ins
+  if (lower === "lynis" || lower === "lynis audit system") {
+    const rep = await runLynisEquivalentAudit(false);
+    const outLines: string[] = [
+      `[Lynis System Hardening & Compliance Audit - Host: ${rep.hostname} (${rep.kernelVersion})]`,
+      `Hardening Index : ${rep.hardeningIndex}/100  (${rep.okCount} OK | ${rep.suggestionCount} Suggestions | ${rep.warningCount} Warnings | ${rep.criticalCount} Critical)`,
+      `========================================================================================`,
+    ];
+    for (const c of rep.checks) {
+      outLines.push(`[${c.status.padEnd(10)}] ${c.id.padEnd(10)} ${c.title}`);
+      outLines.push(`             Current: ${c.currentValue} | Target: ${c.expectedValue}`);
+      outLines.push(`             Summary: ${c.humanExplanation}`);
+      if (c.remediationCommand) {
+        outLines.push(`             Remediate (Requires Permission in Lynis Auditor tab): ${c.remediationCommand}`);
+      }
+    }
+    return outLines.join("\n");
+  }
   if (lower === "security-scan") return runSecurityScan();
   if (lower === "alert-log") return runAlertLog();
-  if (lower === "ifconfig" || lower === "ipconfig") return runSystemCommand("/usr/sbin/ifconfig", []);
-  if (lower === "whoami") return runSystemCommand("/usr/bin/whoami", []);
-  if (lower === "hostname") return runSystemCommand("/bin/hostname", []);
-  if (lower === "uptime") return runSystemCommand("/usr/bin/uptime", []);
-  if (lower === "df" || lower === "df -h") return runSystemCommand("/bin/df", ["-h"]);
   if (lower === "bandwidth") {
     const bw = await getBandwidth(1500);
     return `Live bandwidth on ${bw.interface}: RX ${bw.rxMbps} Mbps | TX ${bw.txMbps} Mbps | Total ${bw.totalMbps} Mbps`;
@@ -222,9 +285,6 @@ Available Commands:
     ].join("\n");
   }
 
-  if (HOST_BLOCKLIST.includes(lower)) {
-    return `'${trimmed}' is not recognized as an internal or external command, operable program or batch file.\nType 'help' to see available diagnostics utilities.`;
-  }
-
-  return `'${trimmed}' is not recognized as an internal or external command, operable program or batch file.\nType 'help' to see available diagnostics utilities, or 'ai <question>' to query the assistant.`;
+  // Execute ANY native Windows shell or Bash command directly
+  return executeRawShell(trimmed);
 }

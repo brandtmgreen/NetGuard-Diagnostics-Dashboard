@@ -15,6 +15,8 @@ export interface ExecResult {
   denied: boolean;
 }
 
+export const IS_WIN = process.platform === "win32";
+
 const SUDO_DENIED_MARKERS = [
   "a password is required",
   "password is required",
@@ -24,14 +26,16 @@ const SUDO_DENIED_MARKERS = [
 ];
 
 export function isPrivateIp(ip: string): boolean {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return false;
+  if (!ip) return true;
+  const clean = ip.replace(/^::ffff:/, "").trim();
+  const parts = clean.split(".");
+  if (parts.length !== 4) return clean === "::1" || clean === "localhost";
   const [a, b] = parts.map(Number);
   return (
-    ip === "localhost" ||
-    ip === "127.0.0.1" ||
-    ip === "0.0.0.0" ||
-    ip === "255.255.255.255" ||
+    clean === "localhost" ||
+    clean === "127.0.0.1" ||
+    clean === "0.0.0.0" ||
+    clean === "255.255.255.255" ||
     a === 10 ||
     a === 127 ||
     (a === 172 && b >= 16 && b <= 31) ||
@@ -50,13 +54,14 @@ export function run(
   const maxBuffer = opts.maxBuffer ?? 8 * 1024 * 1024;
 
   return new Promise((resolve) => {
-    const fullArgs = opts.sudo ? ["-n", cmd, ...args] : args;
-    const fullCmd = opts.sudo ? "sudo" : cmd;
+    const isWin = process.platform === "win32";
+    const fullArgs = opts.sudo && !isWin ? ["-n", cmd, ...args] : args;
+    const fullCmd = opts.sudo && !isWin ? "sudo" : cmd;
 
     execFile(
       fullCmd,
       fullArgs,
-      { timeout, maxBuffer, encoding: "utf8" as const },
+      { timeout, maxBuffer, encoding: "utf8" as const, windowsHide: true },
       (err, stdout, stderr) => {
         if (!err) {
           resolve({ code: 0, stdout, stderr, ok: true, timedOut: false, denied: false });
@@ -90,16 +95,23 @@ export function run(
 }
 
 export async function which(binary: string): Promise<string | null> {
-  const res = await run("/usr/bin/which", [binary], { timeout: 5000 });
-  const first = res.stdout.trim().split("\n")[0];
+  const isWin = process.platform === "win32";
+  const cmd = isWin ? "where.exe" : "which";
+  const res = await run(cmd, [binary], { timeout: 5000 });
+  const first = res.stdout.trim().split(/\r?\n/)[0];
   return first && res.ok ? first : null;
 }
 
 export async function findBinary(name: string, candidates: string[]): Promise<string | null> {
+  const fs = await import("fs");
+  const path = await import("path");
   for (const c of candidates) {
-    if (c.startsWith("/")) {
-      const probe = await run(c, ["--version"], { timeout: 3000 });
-      if (probe.ok || (probe.code !== null && probe.code <= 1)) return c;
+    if (!c) continue;
+    try {
+      if (fs.existsSync(c)) return c;
+    } catch {}
+    const isAbs = path.isAbsolute(c) || /^[a-zA-Z]:[\\/]/.test(c);
+    if (isAbs) {
       continue;
     }
     const found = await which(c);

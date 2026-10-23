@@ -17,6 +17,8 @@ import {
   X
 } from "lucide-react";
 import { Device, NmapScanResult } from "../types";
+import { safeFetchJson } from "../lib/api";
+import WindowCard from "./WindowCard";
 
 interface NmapScannerProps {
   devices: Device[];
@@ -47,18 +49,24 @@ export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTa
     setTerminalOutput(prev => prev + `Scanning target host ${targetIp} for open ports...\n`);
     
     try {
-      const response = await fetch("/api/security/nmap", {
+      const data = await safeFetchJson<any>("/api/security/nmap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target: targetIp, profile })
       });
-      const data = await response.json();
       
+      if (!data) {
+        setTerminalOutput(prev => prev + `[ERROR] Failed to obtain scan results. Server might be warming up.\n`);
+        return;
+      }
+
       setTerminalOutput(prev => prev + `Discovered open ports on target:\n`);
       
-      data.ports.forEach((p: any) => {
-        setTerminalOutput(prev => prev + `  -> Port ${p.port}/${p.protocol}: ${p.state.toUpperCase()} [${p.service}]\n`);
-      });
+      if (Array.isArray(data.ports)) {
+        data.ports.forEach((p: any) => {
+          setTerminalOutput(prev => prev + `  -> Port ${p.port}/${p.protocol}: ${p.state.toUpperCase()} [${p.service}]\n`);
+        });
+      }
 
       setTerminalOutput(prev => prev + `Analyzing signatures with local vulnerability databases...\n`);
       setTerminalOutput(prev => prev + `Task completed. Structured reports generated.\n`);
@@ -114,114 +122,126 @@ export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTa
       {/* Control Grid layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 shrink-0">
         {/* Settings Card (5/12) */}
-        <div className="lg:col-span-5 bg-[#1a1b26] border border-[#24283b] rounded p-3 flex flex-col justify-between space-y-3">
-          <div>
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-[#e0af68]" />
-              Scan Configuration
-            </h3>
-
-            {/* Target Select / Input */}
-            <div className="space-y-1.5 mb-3">
-              <label className="text-[10px] text-[#565f89] uppercase font-bold font-mono">Target Host Node IP</label>
-              <div className="flex gap-1.5">
-                <select
-                  value={targetIp}
-                  onChange={(e) => setTargetIp(e.target.value)}
-                  className="bg-[#0b0c0f] border border-[#24283b] rounded text-xs text-[#a9b1d6] px-2 py-1 focus:outline-none focus:border-[#7aa2f7] font-mono flex-1 h-8"
-                >
-                  <optgroup label="Connected Subnet Devices">
-                    {devices.map(d => (
-                      <option key={d.ip} value={d.ip} className="font-mono">
-                        {d.name} ({d.ip}) {d.status === "Offline" ? "[OFFLINE]" : ""}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Manual Definition">
-                    <option value="127.0.0.1">LocalHost Loopback (127.0.0.1)</option>
-                    {(() => {
-                      const gw = devices.find(d => d.type.toLowerCase() === "router")?.ip;
-                      return gw ? <option value={gw}>Subnet Gateway ({gw})</option> : null;
-                    })()}
-                  </optgroup>
-                </select>
-                <input
-                  type="text"
-                  placeholder="Custom Target IP..."
-                  value={targetIp}
-                  onChange={(e) => setTargetIp(e.target.value)}
-                  className="w-32 bg-[#0b0c0f] border border-[#24283b] rounded text-xs text-[#a9b1d6] px-2 py-1 focus:outline-none focus:border-[#7aa2f7] font-mono h-8"
-                />
-              </div>
-            </div>
-
-            {/* Profile Selection */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] text-[#565f89] uppercase font-bold font-mono">Scan Technique Profiles</label>
-              <div className="grid grid-cols-2 gap-2">
-                {profiles.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => setProfile(p.id as any)}
-                    className={`p-2 rounded text-left border transition flex flex-col justify-between h-14 ${
-                      profile === p.id 
-                        ? "bg-[#24283b]/60 text-[#7aa2f7] border-[#7aa2f7]/50" 
-                        : "bg-[#0b0c0f]/40 text-[#a9b1d6] border-[#24283b]/60 hover:bg-[#24283b]/20"
-                    }`}
+        <WindowCard
+          id="nmap-config"
+          title="Scan Configuration"
+          icon={<Zap className="w-3.5 h-3.5 text-[#e0af68]" />}
+          className="lg:col-span-5"
+          minHeight={220}
+        >
+          <div className="p-3 flex flex-col justify-between space-y-3 h-full">
+            <div>
+              {/* Target Select / Input */}
+              <div className="space-y-1.5 mb-3">
+                <label className="text-[10px] text-[#565f89] uppercase font-bold font-mono">Target Host Node IP</label>
+                <div className="flex gap-1.5">
+                  <select
+                    value={targetIp}
+                    onChange={(e) => setTargetIp(e.target.value)}
+                    className="bg-[#0b0c0f] border border-[#24283b] rounded text-xs text-[#a9b1d6] px-2 py-1 focus:outline-none focus:border-[#7aa2f7] font-mono flex-1 h-8"
                   >
-                    <span className="text-xs font-bold font-mono">{p.label}</span>
-                    <span className="text-[8px] font-mono opacity-60 text-[#565f89] truncate w-full">{p.desc}</span>
-                  </button>
-                ))}
+                    <optgroup label="Connected Subnet Devices">
+                      {devices.map(d => (
+                        <option key={d.ip} value={d.ip} className="font-mono">
+                          {d.name} ({d.ip}) {d.status === "Offline" ? "[OFFLINE]" : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Manual Definition">
+                      <option value="127.0.0.1">LocalHost Loopback (127.0.0.1)</option>
+                      {(() => {
+                        const gw = devices.find(d => d.type.toLowerCase() === "router")?.ip;
+                        return gw ? <option value={gw}>Subnet Gateway ({gw})</option> : null;
+                      })()}
+                    </optgroup>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Custom Target IP..."
+                    value={targetIp}
+                    onChange={(e) => setTargetIp(e.target.value)}
+                    className="w-32 bg-[#0b0c0f] border border-[#24283b] rounded text-xs text-[#a9b1d6] px-2 py-1 focus:outline-none focus:border-[#7aa2f7] font-mono h-8"
+                  />
+                </div>
+              </div>
+
+              {/* Profile Selection */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-[#565f89] uppercase font-bold font-mono">Scan Technique Profiles</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {profiles.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setProfile(p.id as any)}
+                      className={`p-2 rounded text-left border transition flex flex-col justify-between h-14 ${
+                        profile === p.id 
+                          ? "bg-[#24283b]/60 text-[#7aa2f7] border-[#7aa2f7]/50" 
+                          : "bg-[#0b0c0f]/40 text-[#a9b1d6] border-[#24283b]/60 hover:bg-[#24283b]/20"
+                      }`}
+                    >
+                      <span className="text-xs font-bold font-mono">{p.label}</span>
+                      <span className="text-[8px] font-mono opacity-60 text-[#565f89] truncate w-full">{p.desc}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          <button
-            onClick={handleRunNmap}
-            disabled={isLoading}
-            className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${
-              isLoading 
-                ? "bg-[#24283b] text-[#565f89] cursor-not-allowed" 
-                : "bg-[#7aa2f7] text-slate-950 hover:bg-[#7aa2f7]/90 active:scale-95"
-            }`}
-          >
-            {isLoading ? (
-              <>
-                <Activity className="w-4 h-4 animate-spin" />
-                Executing Network Scan...
-              </>
-            ) : (
-              <>
-                <Play className="w-4 h-4 fill-current" />
-                Initialize NMAP Scan
-              </>
-            )}
-          </button>
-        </div>
+            <button
+              onClick={handleRunNmap}
+              disabled={isLoading}
+              className={`w-full py-2 rounded text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition ${
+                isLoading 
+                  ? "bg-[#24283b] text-[#565f89] cursor-not-allowed" 
+                  : "bg-[#7aa2f7] text-slate-950 hover:bg-[#7aa2f7]/90 active:scale-95"
+              }`}
+            >
+              {isLoading ? (
+                <>
+                  <Activity className="w-4 h-4 animate-spin" />
+                  Executing Network Scan...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-current" />
+                  Initialize NMAP Scan
+                </>
+              )}
+            </button>
+          </div>
+        </WindowCard>
 
         {/* NMAP CLI Live Screen (7/12) */}
-        <div className="lg:col-span-7 bg-[#0b0c0f] border border-[#24283b] rounded flex flex-col overflow-hidden h-[195px]">
-          <div className="px-3 py-1.5 border-b border-[#24283b] bg-[#16161e] flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase text-[#565f89] font-mono flex items-center gap-1.5">
-              <Terminal className="w-3.5 h-3.5" />
-              NMAP CLI EXECUTION STREAM
-            </span>
-            {isLoading && (
+        <WindowCard
+          id="nmap-cli-stream"
+          title="NMAP CLI Execution Stream"
+          icon={<Terminal className="w-3.5 h-3.5 text-[#7aa2f7]" />}
+          className="lg:col-span-7"
+          defaultHeight={240}
+          minHeight={160}
+          badge={
+            isLoading ? (
               <span className="flex items-center gap-1 text-[9px] font-mono text-[#e0af68]">
                 <span className="w-1.5 h-1.5 bg-[#e0af68] rounded-full animate-ping"></span>
                 ACTIVE
               </span>
-            )}
-          </div>
-          <div className="flex-1 p-2.5 font-mono text-[10px] leading-relaxed text-[#7aa2f7] overflow-y-auto whitespace-pre-wrap bg-[#16161f]/30 select-text">
+            ) : undefined
+          }
+        >
+          <div className="flex-1 p-2.5 font-mono text-[10px] leading-relaxed text-[#7aa2f7] overflow-y-auto whitespace-pre-wrap bg-[#0b0c0f] select-text h-full">
             {terminalOutput || "Scan Engine Ready. Select your target IP and trigger the NMAP scan above to begin packet traversal."}
           </div>
-        </div>
+        </WindowCard>
       </div>
 
       {/* Scan Results Layout */}
-      <div className="flex-1 flex flex-col bg-[#1a1b26] border border-[#24283b] rounded overflow-hidden min-h-[250px]">
+      <WindowCard
+        id="nmap-audit-results"
+        title="Vulnerability Audit & Open Port Report"
+        icon={<ShieldAlert className="w-3.5 h-3.5 text-[#9ece6a]" />}
+        defaultHeight={380}
+        minHeight={220}
+      >
         {/* Navigation bar tabs for analysis outputs */}
         <div className="bg-[#16161e] px-3 border-b border-[#24283b] flex items-center justify-between">
           <div className="flex gap-1.5">
@@ -419,7 +439,7 @@ export default function NmapScanner({ devices, onAddFirewallRule, onAddPlannerTa
             </>
           )}
         </div>
-      </div>
+      </WindowCard>
     </div>
   );
 }
