@@ -1,8 +1,11 @@
+const API_TOKEN = new URLSearchParams(window.location.search).get("token") || "";
+
 const request = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
   const response = await fetch(path, {
     ...options,
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(API_TOKEN ? { "X-NetGuard-Token": API_TOKEN } : {}),
       ...(options.headers || {}),
     },
   });

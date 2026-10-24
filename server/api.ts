@@ -36,6 +36,12 @@ function requireLocal(req: Request, res: Response, next: NextFunction): void {
     res.status(403).json({ error: "This control plane is bound to localhost only." });
     return;
   }
+  const expectedToken = process.env.NETGUARD_API_TOKEN;
+  const suppliedToken = req.header("x-netguard-token") || String(req.query.token || "");
+  if (expectedToken && req.path !== "/health" && suppliedToken !== expectedToken) {
+    res.status(401).json({ error: "Invalid local API token." });
+    return;
+  }
   next();
 }
 

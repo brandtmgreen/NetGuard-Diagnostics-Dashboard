@@ -4,10 +4,11 @@
 // assets must live in app.asar.unpacked/dist because Node cannot fork a script
 // from inside an asar archive.
 
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, Menu, Tray } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const crypto = require("crypto");
 const { execFileSync, fork, spawn } = require("child_process");
 
 const PORT = Number(process.env.NETGUARD_PORT || 3000);
@@ -15,6 +16,9 @@ const DASHBOARD_URL = `http://127.0.0.1:${PORT}/`;
 
 let serverProcess = null;
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
+const apiToken = crypto.randomBytes(24).toString("hex");
 
 function isAdministrator() {
   try {
@@ -134,6 +138,7 @@ async function createWindow() {
       ...process.env,
       NODE_ENV: "production",
       PORT: String(PORT),
+      NETGUARD_API_TOKEN: apiToken,
       // Required when the parent is Electron: run the child as plain Node.
       ELECTRON_RUN_AS_NODE: "1",
     },
@@ -168,9 +173,56 @@ async function createWindow() {
     mainWindow = null;
   });
 
+  mainWindow.on("close", (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
+  if (!tray) {
+    try {
+      const icon = await app.getFileIcon(process.execPath, { size: "small" });
+      tray = new Tray(icon.resize({ width: 16, height: 16 }));
+      tray.setToolTip("NetGuard Security Desk");
+      tray.setContextMenu(
+        Menu.buildFromTemplate([
+          {
+            label: "Open NetGuard",
+            click: () => {
+              if (mainWindow) {
+                mainWindow.show();
+                mainWindow.focus();
+              }
+            },
+          },
+          { type: "separator" },
+          {
+            label: "Quit NetGuard",
+            click: () => {
+              isQuitting = true;
+              app.quit();
+            },
+          },
+        ])
+      );
+      tray.on("double-click", () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      });
+    } catch (error) {
+      console.warn("[DESKTOP HOST] Tray unavailable:", error.message);
+    }
+  }
+
   try {
     await waitForServer();
-    await mainWindow.loadURL(DASHBOARD_URL);
+    await mainWindow.loadURL(`${DASHBOARD_URL}?token=${encodeURIComponent(apiToken)}`);
+    if (process.argv.includes("--background")) {
+      mainWindow.hide();
+    }
   } catch (err) {
     console.error("[DESKTOP HOST] Startup failed:", err);
     showStartupError(err instanceof Error ? err.message : String(err));
@@ -202,10 +254,17 @@ function stopServer() {
   }
 }
 
-app.on("before-quit", stopServer);
-app.on("window-all-closed", () => {
+app.on("before-quit", () => {
+  isQuitting = true;
   stopServer();
-  if (process.platform !== "darwin") app.quit();
+});
+app.on("window-all-closed", () => {
+  // The tray keeps capture and the local control plane alive when the window
+  // is closed. Quit is explicit from the tray menu.
+  if (!tray && process.platform !== "darwin") {
+    stopServer();
+    app.quit();
+  }
 });
 app.on("activate", () => {
   if (mainWindow === null) createWindow();
