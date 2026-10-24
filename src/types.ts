@@ -1,141 +1,172 @@
-export type DeviceType = "Windows" | "Linux" | "Mac" | "Router" | "IoT";
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
 
-export interface Device {
-  ip: string;
+export interface HostInfo {
+  hostname: string;
+  platform: string;
+  release: string;
+  arch: string;
+  uptimeSeconds: number;
+  cpuModel: string;
+  cpuCount: number;
+  cpuPercent: number;
+  totalMemoryBytes: number;
+  freeMemoryBytes: number;
+  memoryPercent: number;
+  isAdmin: boolean;
+  gateway: string | null;
+  localAddresses: string[];
+  generatedAt: string;
+}
+
+export interface NetworkInterfaceInfo {
   name: string;
-  type: DeviceType;
-  status: "Online" | "Offline";
-  ping: string;
-  cpu: number;
-  memory: number;
+  address: string;
+  netmask: string;
   mac: string;
+  family: string;
+  internal: boolean;
 }
 
-export interface Process {
+export interface Neighbor {
+  ip: string;
+  mac: string;
+  state: string;
+  interfaceAlias: string;
+}
+
+export interface Connection {
+  localAddress: string;
+  localPort: number;
+  remoteAddress: string;
+  remotePort: number;
+  state: string;
   pid: number;
-  name: string;
-  cpu: number;
-  memory: number; // in MB
-  disk: number; // in MB/s
-  network: number; // in Mbps
-  status: "Running" | "Suspended" | "Stopped";
-  publisher: string;
-  parentPid?: number;
+  processName: string;
 }
 
-export interface ThreatLog {
-  id: string;
-  timestamp: string;
-  severity: "Info" | "Warning" | "Critical";
-  message: string;
-  host: string;
-  status: "Blocked" | "Flagged" | "Resolved";
-}
-
-export interface FirewallRule {
-  id: string;
-  name: string;
-  port: string;
-  protocol: "TCP" | "UDP" | "ICMP" | "All";
-  direction: "Inbound" | "Outbound";
-  action: "Allow" | "Block";
-  enabled: boolean;
-}
-
-export interface TerminalLine {
-  text: string;
-  type: "input" | "output" | "error" | "ai" | "info";
-  timestamp: string;
-}
-
-export interface PlannerTask {
-  id: string;
-  title: string;
-  description: string;
-  dueDate: string;
-  completed: boolean;
-  priority: "Low" | "Medium" | "High" | "Critical";
-  assignedNode?: string;
-  prerequisiteTaskId?: string;
-}
-
-export interface SuspiciousActivity {
-  id: string;
-  timestamp: string;
-  srcIp: string;
-  destIp: string;
-  protocol: "TCP" | "UDP" | "ICMP" | "HTTP";
-  destPort: string;
-  type: "Port Scan" | "Brute Force" | "Unusual Traffic Spike" | "Potential Intrusion" | "DDoS Pattern";
-  severity: "low" | "medium" | "high" | "critical";
-  packetSize: string;
-  reason: string;
-  status: "active" | "mitigated" | "ignored";
-}
-
-export interface SystemAlert {
-  id: string;
-  timestamp: string;
-  severity: "info" | "warning" | "critical";
-  message: string;
-  unread: boolean;
-  deviceIp: string;
-}
-
-export interface NmapScanResult {
-  id: string;
-  target: string;
-  profile: "quick" | "intense" | "vuln" | "os";
-  timestamp: string;
-  status: "completed" | "scanning" | "failed";
-  ports: {
-    port: number;
-    protocol: string;
-    state: "open" | "closed" | "filtered";
-    service: string;
-    version?: string;
-    vulnerability?: string;
-    severity?: "info" | "low" | "medium" | "high" | "critical";
-  }[];
-  osInfo?: {
-    osFamily: string;
-    osGen: string;
-    accuracy: number;
-  };
-  rawOutput: string;
-  aiAdvisory?: string;
-}
-
-export interface CapturedPacket {
+export interface Packet {
   id: number;
   timestamp: string;
   source: string;
   destination: string;
-  protocol: "TCP" | "UDP" | "ICMP" | "DNS" | "HTTP" | "SMB" | "TLS";
+  srcPort: number | null;
+  dstPort: number | null;
+  protocol: string;
   length: number;
+  flags: string;
   info: string;
-  hexDump: string;
-  asciiDump: string;
-  severity?: "normal" | "warning" | "critical";
-  payloadDetails?: Record<string, any>;
 }
 
-export interface ThreatResponseReport {
+export interface Alert {
   id: string;
-  title: string;
   timestamp: string;
-  sourceThreat: string;
-  severity: "low" | "medium" | "high" | "critical";
-  status: "draft" | "exported" | "implemented";
-  executiveSummary: string;
-  attackVector: string;
-  auditedDataPoints: string[];
-  findings: string[];
-  mitigations: {
-    action: string;
-    status: "pending" | "completed" | "failed";
-    type: "firewall" | "process" | "remediation";
-    details: string;
-  }[];
-  exportedTo: string[];
+  kind: "port-scan" | "brute-force" | "syn-flood" | "icmp-flood" | "suspicious-outbound" | "suspicious-connection" | "windows-event";
+  severity: Severity;
+  sourceIp: string;
+  destinationIp: string;
+  sourcePort: number | null;
+  destinationPort: number | null;
+  protocol: string;
+  count: number;
+  message: string;
+  evidence: string;
+  status: "open" | "acknowledged" | "blocked" | "ignored";
+}
+
+export interface FirewallRuleInfo {
+  id: string;
+  name: string;
+  displayName: string;
+  direction: string;
+  action: string;
+  enabled: boolean;
+  remoteAddresses: string[];
+  description?: string;
+}
+
+export interface CaptureStatus {
+  running: boolean;
+  interfacePath: string | null;
+  interfaceName: string | null;
+  startedAt: string | null;
+  packets: number;
+  error: string | null;
+  tsharkPath: string | null;
+}
+
+export interface Settings {
+  captureInterface: string;
+  captureFilter: string;
+  preventionMode: "monitor" | "prevent";
+  autoBlock: boolean;
+  blockDurationMinutes: number;
+  allowPublicScan: boolean;
+  geminiModel: string;
+  allowedRemoteIps: string[];
+}
+
+export interface AiStatus {
+  configured: boolean;
+  model: string;
+  message: string;
+}
+
+export interface NmapPort {
+  port: number;
+  protocol: string;
+  state: string;
+  service: string;
+  version: string;
+}
+
+export interface NmapResult {
+  id: string;
+  target: string;
+  profile: string;
+  timestamp: string;
+  status: "completed" | "failed";
+  ports: NmapPort[];
+  rawOutput: string;
+  error?: string;
+}
+
+export interface Report {
+  id: string;
+  createdAt: string;
+  title: string;
+  severity: Severity;
+  summary: string;
+  alerts: Alert[];
+  host: HostInfo;
+  recommendations: string[];
+}
+
+export interface WindowsEventInfo {
+  id: number;
+  timestamp: string;
+  provider: string;
+  level: string;
+  message: string;
+}
+
+export interface AppState {
+  host: HostInfo;
+  interfaces: NetworkInterfaceInfo[];
+  neighbors: Neighbor[];
+  connections: Connection[];
+  alerts: Alert[];
+  firewallRules: FirewallRuleInfo[];
+  capture: CaptureStatus;
+  settings: Settings;
+  securityScore: number;
+  nmapAvailable: boolean;
+  tsharkAvailable: boolean;
+  ai: AiStatus;
+  events: WindowsEventInfo[];
+  generatedAt: string;
+}
+
+export interface CaptureInterface {
+  path: string;
+  name: string;
 }

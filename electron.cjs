@@ -8,13 +8,48 @@ const { app, BrowserWindow, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
-const { fork } = require("child_process");
+const { execFileSync, fork, spawn } = require("child_process");
 
 const PORT = Number(process.env.NETGUARD_PORT || 3000);
 const DASHBOARD_URL = `http://127.0.0.1:${PORT}/`;
 
 let serverProcess = null;
 let mainWindow = null;
+
+function isAdministrator() {
+  try {
+    const output = execFileSync("whoami.exe", ["/groups"], {
+      windowsHide: true,
+      encoding: "utf8",
+    });
+    return /S-1-5-32-544/.test(output) && /Mandatory Label\\High/i.test(output);
+  } catch {
+    return false;
+  }
+}
+
+function relaunchElevated() {
+  if (process.argv.includes("--netguard-elevated")) return false;
+  const executable = process.execPath.replace(/'/g, "''");
+  try {
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Start-Process -FilePath '${executable}' -ArgumentList '--netguard-elevated' -Verb RunAs`,
+      ],
+      { detached: true, stdio: "ignore", windowsHide: true }
+    );
+    child.unref();
+    app.quit();
+    return true;
+  } catch (error) {
+    console.error("[DESKTOP HOST] Elevation launch failed:", error);
+    return false;
+  }
+}
 
 function getServerPath() {
   if (app.isPackaged) {
@@ -75,6 +110,16 @@ function showStartupError(message) {
 }
 
 async function createWindow() {
+  if (app.isPackaged && process.env.NETGUARD_NO_ELEVATE !== "1" && !isAdministrator()) {
+    if (relaunchElevated()) return;
+    dialog.showErrorBox(
+      "NetGuard requires administrator access",
+      "Restart NetGuard as administrator to enable packet capture and Windows Firewall enforcement."
+    );
+    app.quit();
+    return;
+  }
+
   const serverPath = getServerPath();
 
   if (!fs.existsSync(serverPath)) {

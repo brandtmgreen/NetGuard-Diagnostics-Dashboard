@@ -1,154 +1,104 @@
-# NetGuard Diagnostics & Security Control Dashboard
+# NetGuard Security Desk
 
-NetGuard is a high-performance, full-stack local and enterprise security orchestration hub. It combines real-time network diagnostics, interactive global threat tracing, a fully active Host Intrusion Detection (IDS) overlay, an intelligent terminal CLI, and an adaptive sequential mitigation task engine.
+NetGuard is a local Windows security console for real network telemetry, packet capture, detection, and Windows Firewall enforcement. It does not ship demo events or generated telemetry: if a collector is unavailable, the UI says so.
 
-Built using **React (with Vite)** on the frontend, styled with high-contrast tactical cyber-deck aesthetics using **Tailwind CSS**, and backed by a bundled **Express server**, NetGuard is designed for rapid local deployment, secure self-hosting, or complete commercial distribution as a standalone software package.
+## What is real
 
----
+- **Host telemetry**: Windows interfaces, addresses, routing gateway, CPU/memory, uptime (`os` + `route.exe`).
+- **Neighbor/connection tables**: `arp.exe` and `netstat -ano`.
+- **Packet capture**: the installed Npcap driver and Wireshark `tshark.exe`; live packets are parsed from a real field stream.
+- **Detections**: port scans, SYN floods, repeated connections to sensitive ports, ICMP floods, suspicious outbound ports, and Windows Security events 4625/7045.
+- **Prevention**: real Windows Firewall rules created with `New-NetFirewallRule`, scoped to a public IPv4 address, with automatic expiry.
+- **Nmap**: the installed `nmap.exe`, not a simulated scanner. Public targets are disabled by default.
+- **AI**: optional Gemini analysis of real local telemetry. AI is advisory only and never executes a command or creates a rule. Without `GEMINI_API_KEY`, the app returns an explicit unavailable state.
 
-## 🌟 Core Functional Capabilities
+## Safety guardrails
 
-### 1. Interactive Tactical Global Threat Heat Map & Automated Forensic Sweep
-- **Live Geographical Packet Tracing**: Visualizes inbound IP coordinates using equirectangular projection onto a customized cyber-slate map grid.
-- **Dynamic Connection Streams**: Renders active flow lines between hostile external nodes and the primary server gateway.
-- **Automated Forensic Swapper**: One-click deep audit executing automated WHOIS directory lookups, reputational threat scores, network routing hops (traceroute simulation), and reverse DNS hostname audits.
+- Control plane binds to `127.0.0.1` only.
+- Prevention defaults to **monitor**. Automatic blocking requires an explicit arm action and administrator privileges.
+- The backend refuses to block loopback, RFC1918/private, link-local, multicast, the default gateway, the local host, or allowlisted addresses.
+- Blocks expire (default 15 minutes, max 24 hours) and are appended to `%LOCALAPPDATA%\NetGuard\data\audit.log`.
+- AI recommendations are manual and reversible.
+- Terminal commands are a read-only allowlist (`ping`, `tracert`, `netstat`, `ipconfig`, `nslookup`, `arp`).
 
-### 2. Network Diagnostics Console & AI Assistant
-- **Live Interactive Shell**: Executes diagnostic commands like `ping`, `traceroute`, `ifconfig`, `netstat`, `nmap`, and `clear`.
-- **Intelligent LLM Debugger**: Integrated server-side with Gemini API to provide rapid, localized instructions and remediation advice for network anomalies and alert items.
-- **Telemetry Indicators**: Tracks system clock (UTC), latency averages, packet loss rates, and node activity markers.
+## Requirements
 
-### 3. Intrusion Shield (IDS) & Firewall Control Desk
-- **Stateful Socket Monitor**: Active switches to arm/disarm the global socket intrusion tracking.
-- **Live Security Audits**: Logged timeline of network events, remote IP probes, and device state changes.
-- **Dynamic Port Blocks & Firewall Rules**: Live security rule creator allowing users to draft active packet-blocking parameters (Accept, Reject, Drop) for IP subnets and ports.
+- Windows 10/11 x64.
+- Node.js 18+.
+- Npcap (installed with Wireshark or Nmap). The Npcap binding must be enabled on the adapter you want to capture.
+- Wireshark (`tshark.exe`) for packet capture.
+- Nmap for authorized scans.
+- Administrator privileges for live capture and Windows Firewall changes.
 
-### 4. Sequential Mitigation Task Planner
-- **Strict Dependency Resolution**: Supports linear dependency chains (`Task B` requires `Task A`). Prevents resolving tasks when prerequisites are incomplete, throwing localized visual warning banners.
-- **Mitigation Pipelines Map**: Visualizes the active security workflows and dependency pipelines. Highlights completed steps, locked states, and upcoming milestones using dynamic lucide visual indicators.
-- **Circular Check Safeguards**: Advanced form algorithms prevent setting circular dependencies, blocking recursive references before they save.
+## Run from source
 
-### 5. Multi-Device Network Explorer
-- **System Topography**: Interactive list of local devices (routers, hypervisors, server clusters, worker nodes) tracking active IP/MAC configurations, online presence, and warning thresholds.
-- **Traffic Spreader**: Measures real-time TX/RX bandwidth outputs per device.
-
----
-
-## 🚀 Quick Start: Run Locally (Node.js Bare-Metal)
-
-Follow these instructions to run NetGuard directly on your local developer machine.
-
-### 1. Prerequisites
-- **Node.js**: `v18.x` or higher (compatible with standard LTS versions)
-- **npm**: `v9.x` or higher
-
-### 2. Setup Configuration
-Copy the sample environment file to configure local variables:
-```bash
-cp .env.example .env
-```
-Open `.env` in your text editor and specify your configurations:
-- `GEMINI_API_KEY`: Set your Google AI Studio Gemini API key to enable intelligent troubleshooting in the terminal.
-- `APP_URL`: Set to `http://localhost:3000` for standard local executions.
-
-### 3. Installation
-Install all production and compilation dependencies:
-```bash
+```powershell
+cd C:\Users\no\.openclaw-autoclaw\workspace\NetGuard
 npm install
-```
-
-### 4. Running the Development Server
-Starts the fast-updating development environment using `tsx` (TypeScript Execute) for the backend and Vite for the React frontend:
-```bash
 npm run dev
 ```
-Open your browser and navigate to **`http://localhost:3000`** to access the dashboard.
 
-### 5. Production Compilation & Start
-To bundle the frontend assets and compile the Express backend into a single robust production package, run:
-```bash
+Open `http://127.0.0.1:3000`.
+
+Production:
+
+```powershell
 npm run build
 npm start
 ```
-The application will bundle, write minimized static files to `/dist`, and build a high-performance, single-bundle server module under `dist/server.cjs` that launches on port `3000`.
 
----
+The production server serves `dist/` and uses `dist/server.cjs`.
 
-## 🐳 Quick Start: Docker Orchestration (Recommended for Self-Hosting)
+## Configuration
 
-NetGuard is fully dockerized with a highly optimized multi-stage `Dockerfile` and `docker-compose.yml` configuration, allowing you to bundle and spin up the complete application in a single terminal action.
+Create `.env` in the project root (never commit it):
 
-### 1. Launch with Docker Compose
-Simply run:
-```bash
-docker compose up -d --build
-```
-This builds the production package and launches the containerized web platform. Access the running dashboard instantly at **`http://localhost:3000`**.
-
-To shut down the services, run:
-```bash
-docker compose down
+```env
+GEMINI_API_KEY=your-key
+# Optional:
+TSHARK_PATH=C:\Program Files\Wireshark\tshark.exe
+NMAP_PATH=C:\Program Files (x86)\Nmap\nmap.exe
+NETGUARD_PORT=3000
 ```
 
-### 2. Direct Container Construction
-If you prefer running the container image directly without Compose orchestration:
-```bash
-# Build the Docker image
-docker build -t netguard-dashboard .
+The UI stores non-secret settings in `%LOCALAPPDATA%\NetGuard\data\settings.json`. API keys are read from the environment only.
 
-# Start the container on port 3000 (binds container port 3000 to host port 3000)
-docker run -d -p 3000:3000 --env GEMINI_API_KEY="YOUR_API_KEY_HERE" netguard-dashboard
+## Windows desktop package
+
+The installed desktop build lives at:
+
+`C:\Users\no\AppData\Local\Programs\NetGuard\NetGuard.exe`
+
+It starts the bundled server from `resources/app.asar.unpacked/dist/server.cjs`, waits for the health check, then loads the local UI. Packaged builds request elevation because firewall enforcement is a privileged operation. Set `NETGUARD_NO_ELEVATE=1` only for development.
+
+The current package is an internal build, not a signed commercial installer. A release pipeline still needs code signing, an installer, a Windows service for capture when the UI is closed, and crash/update handling.
+
+## Data and privacy
+
+- Alerts, reports, settings, and the audit log stay under `%LOCALAPPDATA%\NetGuard\data`.
+- Packet payloads are not persisted. Only metadata and detection evidence are stored.
+- Gemini, when enabled, receives a summarized telemetry context — not raw packet payloads. Review Google's terms before enabling it on sensitive networks.
+
+## Development notes
+
+- `server/telemetry.ts` — host/interface/connection collection.
+- `server/capture.ts` — tshark process and packet parsing.
+- `server/detection.ts` — detection thresholds and alert generation.
+- `server/prevention.ts` + `server/windows.ts` — Windows Firewall enforcement and guardrails.
+- `server/api.ts` — local-only API and validation.
+- `src/` — React UI. The old demo dashboard components have been removed.
+
+## Verification
+
+```powershell
+npm run typecheck
+npm run build
 ```
 
----
+Manual smoke tests:
 
-## 💼 Commercial Distribution & Packaging Guide (Selling NetGuard)
-
-To package and distribute NetGuard as a closed-source or commercial standalone application for enterprise or end-user licensing, you have several highly viable paths:
-
-### 1. Desktop App Wrapper (Electron / Tauri)
-You can wrap the Node/Express server and the React GUI into a native, single-executable cross-platform desktop application:
-- **Tauri (Recommended)**: Offers extremely lightweight builds (< 15MB) with rapid Rust-backed performance. You can let Tauri launch the Express backend on a local port internally and load the index in its system webview.
-- **Electron**: Highly standard. Configures Electron's main process to spawn the Express server child-process on start, then opens a BrowserWindow pointing to `localhost:3000`. You can compile this into native `.exe` (Windows), `.app`/`.dmg` (macOS), or `.deb`/`.rpm` (Linux) installers using `electron-builder`.
-
-### 2. Standalone Binary Compilation (Node SEA / pkg)
-To distribute NetGuard as a single command-line executable without forcing users to install Node.js:
-- **Node Single Executable Applications (SEA)**: Build native, self-contained binaries natively using newer Node.js features by injecting your bundled `dist/server.cjs` and the static `/dist` client assets directly into the node runtime binary itself.
-- **pkg (Vercel)**: Compile the project into a single, fully self-contained binary:
-  ```bash
-  # Install the packaging library
-  npm install -g pkg
-  # Compile for Windows, macOS, and Linux
-  pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path bin/
-  ```
-
----
-
-## 📁 Technical Architecture
-
-Here is an overview of the modular codebase:
-```
-├── /dist/                  # Compiled production React SPA assets and Server CJS bundles
-├── /src/
-│   ├── /components/        # Extracted UI elements
-│   │   ├── SecurityHeatMap.tsx   # Threat tracer maps and WHOIS automated trace modules
-│   │   ├── TaskPlanner.tsx       # Scheduler with dependency maps, locks, and pipeline tracks
-│   │   ├── DeviceExplorer.tsx    # Device telemetry, ping grids, and online statuses
-│   │   ├── TerminalConsole.tsx   # Interactive command CLI & Gemini API troubleshooter
-│   │   ├── SecurityCenter.tsx    # Central firewall rules form, alert trackers, and active logs
-│   │   └── SecurityReports.tsx   # Dynamic charts, vulnerability indexes, and report builders
-│   ├── App.tsx             # Central state coordinator and core navigation routers
-│   ├── main.tsx            # React application mounting entry-point
-│   ├── index.css           # Global Tailwind v4 style config and custom font definitions
-│   └── types.ts            # Centralized TypeScript models and interfaces
-├── server.ts               # Core full-stack Express server, API proxy, and asset provider
-├── Dockerfile              # Multi-stage production container config
-├── docker-compose.yml      # Orchestration metadata
-└── package.json            # Build scripts, project dependencies, and bundling procedures
-```
-
----
-
-## 🔒 Security Best Practices for Self-Hosting
-- **Reverse Proxying**: Always front local installations with a reverse proxy like **Nginx**, **Caddy**, or **Cloudflare Tunnels** to enable SSL (HTTPS) and rate-limit authentication thresholds.
-- **Environment Safety**: Keep the `.env` file secured on your server with `chmod 600` access rules. Never commit secrets, API keys, or private access credentials into public source-control repositories.
+- `GET /api/health` returns `ok: true`.
+- `GET /api/state` returns real host/connection data.
+- Start capture on the active adapter and confirm packets appear.
+- Run `nmap -Pn -p 1-30 127.0.0.1` against a loopback capture; a port-scan alert should be recorded.
+- Create a block rule for a documentation IP such as `203.0.113.10`, verify it appears in Windows Firewall, then remove it.

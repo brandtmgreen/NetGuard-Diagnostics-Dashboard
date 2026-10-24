@@ -1,110 +1,100 @@
-import React, { useState, useEffect } from "react";
-import { 
-  LayoutDashboard, 
-  Cpu, 
-  Network, 
-  ShieldAlert, 
-  Terminal, 
-  Settings, 
-  Activity, 
-  Bell,
-  ClipboardCheck,
-  Eye,
-  Wrench
+import {
+  Activity,
+  FileText,
+  LayoutDashboard,
+  Network,
+  ScanLine,
+  Settings,
+  ShieldAlert,
+  ShieldBan,
+  Waypoints,
 } from "lucide-react";
+import { AppState } from "../types";
 
-interface SidebarProps {
+const items = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "network", label: "Network", icon: Network },
+  { id: "scanner", label: "Port Scanner", icon: ScanLine },
+  { id: "detections", label: "Detections", icon: ShieldAlert },
+  { id: "prevention", label: "Prevention", icon: ShieldBan },
+  { id: "capture", label: "Packet Capture", icon: Waypoints },
+  { id: "reports", label: "Reports", icon: FileText },
+  { id: "settings", label: "Settings", icon: Settings },
+];
+
+interface Props {
   activeTab: string;
-  setActiveTab: (tab: string) => void;
-  alertCount: number;
-  threatCount: number;
+  onNavigate: (tab: string) => void;
+  state: AppState | null;
 }
 
-export default function Sidebar({ activeTab, setActiveTab, alertCount, threatCount }: SidebarProps) {
-  const [time, setTime] = useState<string>("");
-
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    };
-    updateTime();
-    const timer = setInterval(updateTime, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const navItems = [
-    { id: "dashboard", label: "Dashboard Overview", icon: LayoutDashboard, badge: alertCount },
-    { id: "tasks", label: "Task Manager", icon: Cpu },
-    { id: "planner", label: "Action Planner", icon: ClipboardCheck },
-    { id: "network", label: "Network Diagnostics", icon: Network },
-    { id: "nmap", label: "NMAP Port Scanner", icon: Network },
-    { id: "wireshark", label: "Wireshark Console", icon: Eye },
-    { id: "security", label: "Security Center", icon: ShieldAlert, badge: threatCount, badgeColor: "bg-[#f7768e] text-slate-950 font-bold" },
-    { id: "terminal", label: "Interactive Terminal", icon: Terminal },
-    { id: "wizard", label: "Deployment Wizard", icon: Wrench }
-  ];
+export default function Sidebar({ activeTab, onNavigate, state }: Props) {
+  const openAlerts = state?.alerts.filter((alert) => alert.status === "open").length || 0;
+  const armed = state?.settings.preventionMode === "prevent" && state.settings.autoBlock;
 
   return (
-    <aside id="netguard-sidebar" className="w-64 bg-[#1a1b26] border-r border-[#24283b] text-[#a9b1d6] flex flex-col justify-between h-full select-none shrink-0 font-sans">
-      {/* Brand Header */}
-      <div className="p-4 border-b border-[#24283b]">
+    <aside className="w-64 shrink-0 border-r border-[#24283b] bg-[#0d0f16] flex flex-col min-h-screen">
+      <div className="px-5 pt-6 pb-5 border-b border-[#24283b]">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded bg-[#16161e] text-[#7aa2f7] border border-[#24283b]">
-            <Activity className="w-5 h-5 animate-pulse" />
+          <div className="w-10 h-10 rounded-xl bg-[#7aa2f7]/10 border border-[#7aa2f7]/30 flex items-center justify-center">
+            <Activity className="w-5 h-5 text-[#7aa2f7]" />
           </div>
           <div>
-            <h1 className="font-bold text-slate-100 tracking-tight text-sm uppercase">NetGuard CLI</h1>
-            <span className="font-mono text-[10px] text-[#565f89] uppercase tracking-widest block">Omni Diagnostic</span>
+            <div className="text-[13px] font-black tracking-[0.22em] text-[#c0caf5]">NETGUARD</div>
+            <div className="text-[9px] tracking-[0.18em] text-[#565f89] font-bold">LOCAL SECURITY DESK</div>
           </div>
+        </div>
+        <div className="mt-5 flex items-center justify-between text-[10px] font-mono">
+          <span className="text-[#565f89]">HOST</span>
+          <span className="text-[#9ece6a] flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#9ece6a] animate-pulse" />
+            {state?.host.hostname || "connecting"}
+          </span>
         </div>
       </div>
 
-      {/* Navigation List */}
-      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => {
+      <nav className="p-3 space-y-1 flex-1">
+        {items.map((item) => {
           const Icon = item.icon;
-          const isActive = activeTab === item.id;
+          const active = activeTab === item.id;
+          const badge = item.id === "detections" && openAlerts > 0 ? openAlerts : null;
           return (
             <button
               key={item.id}
-              id={`nav-btn-${item.id}`}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-1.5 rounded transition-all text-xs font-semibold group text-left ${
-                isActive 
-                  ? "bg-[#24283b] text-[#7aa2f7] border-l-2 border-[#7aa2f7]" 
-                  : "hover:bg-[#24283b]/40 text-[#a9b1d6] hover:text-[#7aa2f7] border-l-2 border-transparent"
+              onClick={() => onNavigate(item.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-xs font-bold transition ${
+                active
+                  ? "bg-[#7aa2f7]/10 text-[#c0caf5] border border-[#7aa2f7]/20"
+                  : "text-[#737aa2] hover:text-[#c0caf5] hover:bg-white/[0.03] border border-transparent"
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <Icon className={`w-4 h-4 transition-transform duration-200 ${isActive ? "text-[#7aa2f7]" : "text-[#565f89] group-hover:text-[#7aa2f7]"}`} />
-                <span>{item.label}</span>
-              </div>
-              {item.badge !== undefined && item.badge > 0 && (
-                <span className={`px-1.5 py-0.2 text-[9px] font-bold rounded ${item.badgeColor || "bg-[#7aa2f7]/10 text-[#7aa2f7] border border-[#7aa2f7]/30"}`}>
-                  {item.badge}
+              <Icon className={`w-4 h-4 ${active ? "text-[#7aa2f7]" : "text-[#565f89]"}`} />
+              <span className="flex-1">{item.label}</span>
+              {badge ? (
+                <span className="min-w-5 h-5 px-1.5 rounded-full bg-[#f7768e] text-[#0b0c0f] text-[10px] font-black flex items-center justify-center">
+                  {badge}
                 </span>
-              )}
+              ) : null}
             </button>
           );
         })}
       </nav>
 
-      {/* Footer System Info */}
-      <div className="p-3 border-t border-[#24283b] bg-[#16161e] flex flex-col gap-1.5">
-        <div className="flex items-center justify-between text-[10px] text-[#565f89]">
-          <span className="font-mono uppercase">System Node</span>
-          <span className="flex items-center gap-1 font-mono font-bold text-[#9ece6a]">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#9ece6a] animate-ping"></span>
-            ACTIVE
-          </span>
+      <div className="p-4 border-t border-[#24283b] space-y-3">
+        <div className="rounded-lg border border-[#24283b] bg-[#11131b] p-3">
+          <div className="flex items-center justify-between text-[9px] font-black tracking-wider uppercase">
+            <span className="text-[#565f89]">Prevention</span>
+            <span className={armed ? "text-[#f7768e]" : "text-[#e0af68]"}>
+              {armed ? "ARMED" : "MONITOR"}
+            </span>
+          </div>
+          <div className="mt-2 text-[10px] text-[#737aa2]">
+            {state?.host.isAdmin ? "Administrator session" : "Standard user — firewall writes disabled"}
+          </div>
         </div>
-        <div className="flex items-center justify-between text-[10px] text-[#565f89] border-t border-[#24283b]/60 pt-1.5">
-          <span>Local Time</span>
-          <span className="font-mono font-medium text-[#a9b1d6]">{time}</span>
-        </div>
-        <div className="flex justify-center text-[9px] text-[#565f89] font-mono">
-          Build 10.0.22621.Tokyo
+        <div className="text-[9px] font-mono text-[#414868] flex items-center justify-between">
+          <span>v1.0.4</span>
+          <span>LOCAL ONLY</span>
         </div>
       </div>
     </aside>
