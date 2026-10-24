@@ -73,6 +73,8 @@ It starts the bundled server from `resources/app.asar.unpacked/dist/server.cjs`,
 
 The current package is an internal build, not a signed commercial installer. A release pipeline still needs code signing, an installer, a Windows service for capture when the UI is closed, and crash/update handling.
 
+The Electron shell now keeps the local server and capture alive in the system tray when the window is closed. Logon startup can be installed with `scripts\install-startup.ps1` (run elevated); remove it with `scripts\uninstall-startup.ps1`. A portable release folder and optional zip can be built with `scripts\package-portable.ps1`; an Inno Setup 6 installer script is in `installer\NetGuard.iss` and can be compiled with `scripts\build-installer.ps1` once Inno Setup is installed.
+
 ## Data and privacy
 
 - Alerts, reports, settings, and the audit log stay under `%LOCALAPPDATA%\NetGuard\data`.
