@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Bot, KeyRound, Save, Settings as SettingsIcon, ShieldAlert } from "lucide-react";
-import { AppState, Settings } from "../types";
+import { Activity, Bot, Check, Copy, KeyRound, Save, Settings as SettingsIcon, ShieldAlert } from "lucide-react";
+import { AppState, Diagnostics, Settings } from "../types";
+import { api } from "../api";
 
 interface Props {
   state: AppState;
@@ -14,6 +15,9 @@ export default function SettingsView({ state, onSaveSettings }: Props) {
   const [allowedIps, setAllowedIps] = useState(state.settings.allowedRemoteIps.join("\n"));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setCaptureFilter(state.settings.captureFilter);
@@ -26,6 +30,25 @@ export default function SettingsView({ state, onSaveSettings }: Props) {
     state.settings.allowPublicScan,
     state.settings.allowedRemoteIps.join("|"),
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.diagnostics()
+      .then(data => { if (!cancelled) setDiagnostics(data); })
+      .catch(error => { if (!cancelled) setDiagnosticsError(error instanceof Error ? error.message : String(error)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const copyLogPath = async () => {
+    if (!diagnostics?.log.path) return;
+    try {
+      await navigator.clipboard.writeText(diagnostics.log.path);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -124,6 +147,49 @@ export default function SettingsView({ state, onSaveSettings }: Props) {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="rounded-xl border border-[#24283b] bg-[#161821] p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-[#9ece6a]" />
+          <h2 className="text-sm font-black text-[#c0caf5]">Diagnostics & crash log</h2>
+        </div>
+        {diagnosticsError ? (
+          <p className="text-[10px] text-[#f7768e]">Diagnostics unavailable: {diagnosticsError}</p>
+        ) : diagnostics ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] font-mono">
+              {[
+                ["Version", diagnostics.version],
+                ["Uptime", `${Math.floor(diagnostics.uptimeSeconds / 60)}m ${diagnostics.uptimeSeconds % 60}s`],
+                ["Memory", `${diagnostics.memory.rssMb} MB`],
+                ["Node", diagnostics.node],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-[#24283b] bg-[#11131b] p-2">
+                  <div className="text-[8px] font-black uppercase tracking-widest text-[#565f89]">{label}</div>
+                  <div className="mt-1 truncate text-[#c0caf5]">{value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-[#24283b] bg-[#11131b] px-3 py-2">
+              <code className="min-w-0 flex-1 truncate text-[9px] text-[#a9b1d6]">{diagnostics.log.path}</code>
+              <button onClick={copyLogPath} className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-[#7aa2f7] hover:text-[#89b4fa]">
+                {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied ? "Copied" : "Copy path"}
+              </button>
+            </div>
+            <p className="text-[9px] text-[#565f89]">
+              Local JSONL log · {diagnostics.log.exists ? `${Math.round(diagnostics.log.sizeBytes / 1024)} KB` : "no file yet"}. Crash records include message, stack, process id and timestamp.
+            </p>
+            {diagnostics.recent.length > 0 && (
+              <details className="rounded-lg border border-[#24283b] bg-[#0b0c0f] p-3">
+                <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-[#565f89]">Recent events ({diagnostics.recent.length})</summary>
+                <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-[9px] leading-relaxed text-[#737aa2]">{diagnostics.recent.slice(-25).map(event => JSON.stringify(event)).join("\n")}</pre>
+              </details>
+            )}
+          </>
+        ) : (
+          <p className="text-[10px] text-[#565f89]">Loading diagnostics…</p>
+        )}
       </section>
     </div>
   );

@@ -81,6 +81,12 @@ The Electron shell now keeps the local server and capture alive in the system tr
 - Packet payloads are not persisted. Only metadata and detection evidence are stored.
 - Gemini, when enabled, receives a summarized telemetry context — not raw packet payloads. Review Google's terms before enabling it on sensitive networks.
 
+## Diagnostics and crash reporting
+
+NetGuard writes structured JSONL diagnostics to `%LOCALAPPDATA%\NetGuard\logs\netguard.log` (5 MB rotation) and desktop-shell crashes to `%LOCALAPPDATA%\NetGuard\logs\desktop.log`. The Settings page shows the live version, uptime, memory, log path and recent events; the same data is available at `GET /api/diagnostics` with the local API token.
+
+Uncaught exceptions and unhandled rejections are captured with message, stack, timestamp and PID. API failures are logged with method, path, status and a bounded error message. Packet payloads and secrets are never written to these logs.
+
 ## Development notes
 
 - `server/telemetry.ts` — host/interface/connection collection.

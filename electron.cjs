@@ -11,6 +11,32 @@ const http = require("http");
 const crypto = require("crypto");
 const { execFileSync, fork, spawn } = require("child_process");
 
+const DESKTOP_LOG_DIR = path.join(process.env.LOCALAPPDATA || app.getPath("userData"), "NetGuard", "logs");
+const DESKTOP_LOG = path.join(DESKTOP_LOG_DIR, "desktop.log");
+function logDesktop(level, event, error) {
+  try {
+    fs.mkdirSync(DESKTOP_LOG_DIR, { recursive: true });
+    const err = error instanceof Error ? error : new Error(String(error || ""));
+    fs.appendFileSync(DESKTOP_LOG, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+      message: err.message,
+      stack: err.stack?.split("\n").slice(0, 20).join("\n"),
+    }) + "\n", "utf8");
+  } catch {
+    /* desktop logging must never block startup */
+  }
+}
+process.on("uncaughtException", (error) => {
+  logDesktop("crash", "desktop.uncaughtException", error);
+  console.error("[DESKTOP HOST] uncaught exception:", error);
+});
+process.on("unhandledRejection", (reason) => {
+  logDesktop("crash", "desktop.unhandledRejection", reason);
+  console.error("[DESKTOP HOST] unhandled rejection:", reason);
+});
+
 const PORT = Number(process.env.NETGUARD_PORT || 3000);
 const DASHBOARD_URL = `http://127.0.0.1:${PORT}/`;
 

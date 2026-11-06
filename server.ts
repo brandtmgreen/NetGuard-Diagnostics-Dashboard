@@ -10,6 +10,19 @@ import { PreventionService } from "./server/prevention.js";
 import { Store } from "./server/store.js";
 import { Telemetry } from "./server/telemetry.js";
 import { WindowsEventInfo } from "./server/types.js";
+import { getLogPath, logger } from "./server/logger.js";
+
+process.on("uncaughtException", (error) => {
+  logger.crash("process.uncaughtException", error);
+  console.error("[NetGuard] uncaught exception:", error);
+  process.exitCode = 1;
+  setTimeout(() => process.exit(1), 250).unref();
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.crash("process.unhandledRejection", reason);
+  console.error("[NetGuard] unhandled rejection:", reason);
+});
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -93,14 +106,23 @@ async function startServer(): Promise<void> {
   const server = app.listen(PORT, HOST, () => {
     console.log(`[NetGuard] control plane: http://${HOST}:${PORT}`);
     console.log(`[NetGuard] admin=${telemetry.getHost().isAdmin} tshark=${capture.getStatus().tsharkPath || "missing"}`);
+    logger.info("server.start", {
+      port: PORT,
+      host: HOST,
+      admin: telemetry.getHost().isAdmin,
+      tshark: capture.getStatus().tsharkPath || null,
+      logPath: getLogPath(),
+    });
   });
 
   server.on("error", (error) => {
     console.error("[NetGuard] server error:", error.message);
+    logger.error("server.error", { message: error.message });
     process.exitCode = 1;
   });
 
   const shutdown = (): void => {
+    logger.info("server.shutdown", { reason: "signal" });
     clearInterval(localAddressTimer);
     clearInterval(connectionTimer);
     clearInterval(eventTimer);
@@ -117,5 +139,6 @@ async function startServer(): Promise<void> {
 
 startServer().catch((error) => {
   console.error("[NetGuard] failed to start:", error);
+  logger.crash("server.startFailed", error);
   process.exit(1);
 });

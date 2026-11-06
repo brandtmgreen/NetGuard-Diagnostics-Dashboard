@@ -93,7 +93,7 @@ export default function Sidebar({ activeTab, onNavigate, state }: Props) {
           </div>
         </div>
         <div className="text-[9px] font-mono text-[#414868] flex items-center justify-between">
-          <span>v1.0.4</span>
+          <span>v1.0.5</span>
           <span>LOCAL ONLY</span>
         </div>
       </div>

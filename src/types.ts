@@ -166,6 +166,20 @@ export interface AppState {
   generatedAt: string;
 }
 
+export interface Diagnostics {
+  version: string;
+  uptimeSeconds: number;
+  node: string;
+  platform: string;
+  arch: string;
+  pid: number;
+  memory: { rssMb: number; heapUsedMb: number };
+  log: { path: string; exists: boolean; sizeBytes: number; updatedAt: string | null };
+  recent: Array<Record<string, unknown>>;
+  admin: boolean;
+  capture: CaptureStatus;
+}
+
 export interface CaptureInterface {
   path: string;
   name: string;

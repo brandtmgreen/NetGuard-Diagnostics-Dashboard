@@ -1,6 +1,7 @@
 import express, { NextFunction, Request, Response, Router } from "express";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import os from "node:os";
 import { AiService } from "./ai.js";
 import { CaptureService } from "./capture.js";
 import { DetectionEngine } from "./detection.js";
@@ -10,6 +11,7 @@ import { Store } from "./store.js";
 import { Telemetry } from "./telemetry.js";
 import { Settings, WindowsEventInfo } from "./types.js";
 import { isValidIpOrHostname, nowIso, sanitizeText } from "./util.js";
+import { getLogInfo, getRecentLogs, logger } from "./logger.js";
 
 export interface ApiContext {
   store: Store;
@@ -196,13 +198,33 @@ export function createApi(context: ApiContext): Router {
   router.get("/health", (_req, res) => {
     res.json({
       ok: true,
-      version: "1.0.4",
+      version: "1.0.5",
       admin: telemetry.getHost().isAdmin,
       capture: capture.getStatus(),
       nmap: Boolean(findNmap()),
       tshark: Boolean(capture.getStatus().tsharkPath),
       ai: ai.getStatus(),
       timestamp: nowIso(),
+    });
+  });
+
+  router.get("/diagnostics", (_req, res) => {
+    const memory = process.memoryUsage();
+    res.json({
+      version: "1.0.5",
+      uptimeSeconds: Math.round(process.uptime()),
+      node: process.version,
+      platform: `${os.platform()} ${os.release()}`,
+      arch: process.arch,
+      pid: process.pid,
+      memory: {
+        rssMb: Math.round(memory.rss / 1048576),
+        heapUsedMb: Math.round(memory.heapUsed / 1048576),
+      },
+      log: getLogInfo(),
+      recent: getRecentLogs(80),
+      admin: telemetry.getHost().isAdmin,
+      capture: capture.getStatus(),
     });
   });
 
@@ -407,7 +429,7 @@ export function createApi(context: ApiContext): Router {
   return router;
 }
 
-export function apiErrorHandler(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function apiErrorHandler(error: unknown, req: Request, res: Response, _next: NextFunction): void {
   const message = error instanceof Error ? error.message : String(error);
   const status = /admin|privilege/i.test(message)
     ? 403
@@ -416,5 +438,11 @@ export function apiErrorHandler(error: unknown, _req: Request, res: Response, _n
     : /invalid|required|refusing|disabled|not allowed/i.test(message)
         ? 400
         : 500;
+  logger.error("api.error", {
+    method: req.method,
+    path: req.path,
+    status,
+    message: message.slice(0, 500),
+  });
   res.status(status).json({ error: sanitizeText(message, 1000) });
 }
