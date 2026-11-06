@@ -65,3 +65,10 @@ npm start
 - Verified: `npm run typecheck` exit 0; `npm run build` exit 0; production health returns `version: 1.0.5`; `/api/diagnostics` returns 200 with log path and events; Settings renders the diagnostics panel; an API validation error was captured as `api.error`; 0 console errors in the headless UI test.
 
 Remaining commercial gaps are unchanged: signed installer/update pipeline, true Windows service, code signing, and a larger detection-rule test matrix.
+
+## 2026-11-06 — Installed app replaced
+
+- Replaced `C:\Users\no\AppData\Local\Programs\NetGuard` with the refreshed 1.0.5 portable build.
+- Previous installation backed up at `C:\Users\no\.openclaw-autoclaw\workspace\.cluster\NetGuard-install-backup-20261106-0146`.
+- Verified installed `NetGuard.exe` launches and `/api/health` returns **version 1.0.5**.
+- User data under `%LOCALAPPDATA%\NetGuard\data` was not touched.
