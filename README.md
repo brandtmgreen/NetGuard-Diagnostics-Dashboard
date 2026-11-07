@@ -1,6 +1,6 @@
 # NetGuard Security Desk
 
-NetGuard is a local Windows security console for real network telemetry, packet capture, detection, and Windows Firewall enforcement. It does not ship demo events or generated telemetry: if a collector is unavailable, the UI says so.
+NetGuard is a local Windows security console for real network telemetry, packet capture, detection, and Windows Firewall enforcement. It does not ship demo events or generated telemetry: if a collector is unavailable, the UI says so. The operator workflows from the demo build are back, now backed by the real collectors.
 
 ## What is real
 
@@ -11,6 +11,19 @@ NetGuard is a local Windows security console for real network telemetry, packet 
 - **Prevention**: real Windows Firewall rules created with `New-NetFirewallRule`, scoped to a public IPv4 address, with automatic expiry.
 - **Nmap**: the installed `nmap.exe`, not a simulated scanner. Public targets are disabled by default.
 - **AI**: optional Gemini analysis of real local telemetry. AI is advisory only and never executes a command or creates a rule. Without `GEMINI_API_KEY`, the app returns an explicit unavailable state.
+- **System audit**: read-only Defender, firewall, UAC, SMBv1, RDP, Secure Boot, PowerShell policy, local-admin and patch checks (`GET /api/security/audit`).
+
+## Restored operator views
+
+- **Task Manager**: real process tree/table, parent-child lineage, command lines, path, memory and CPU time; guarded process termination.
+- **Action Planner**: search, priority/status filters, assigned nodes, prerequisites, edit/delete, and blocked completion until prerequisites are complete.
+- **Network Diagnostics**: host/route/socket tools plus a real ARP/gateway LAN topology map with clickable nodes and ping.
+- **Port Scanner**: all four Nmap profiles, raw output, optional AI triage, and one-click remediation handoff to the Action Planner.
+- **Packet Capture**: client-side packet filtering, packet details, block-source handoff, and optional AI packet analysis.
+- **Security Center**: posture score, source heat map, open detections, host checks, firewall rules, and acknowledgement/ignore actions.
+- **System Audit**: Lynis-style hardening index with category/status filters and remediation plans.
+- **Terminal**: allowlisted, read-only diagnostics.
+- **Deployment Wizard**: live readiness checks and runtime diagnostics.
 
 ## Safety guardrails
 
@@ -93,8 +106,10 @@ Uncaught exceptions and unhandled rejections are captured with message, stack, t
 - `server/capture.ts` — tshark process and packet parsing.
 - `server/detection.ts` — detection thresholds and alert generation.
 - `server/prevention.ts` + `server/windows.ts` — Windows Firewall enforcement and guardrails.
-- `server/api.ts` — local-only API and validation.
-- `src/` — React UI. The old demo dashboard components have been removed.
+- `server/api.ts` - local-only API and validation.
+- `server/processes.ts` - real process listing and kill guardrails.
+- `server/audit.ts` - read-only Windows hardening audit.
+- `src/` - React UI, including the restored operator views.
 
 ## Verification
 
@@ -107,6 +122,7 @@ Manual smoke tests:
 
 - `GET /api/health` returns `ok: true`.
 - `GET /api/state` returns real host/connection data.
+- `GET /api/security/audit` returns a hardening report with real checks.
 - Start capture on the active adapter and confirm packets appear.
 - Run `nmap -Pn -p 1-30 127.0.0.1` against a loopback capture; a port-scan alert should be recorded.
 - Create a block rule for a documentation IP such as `203.0.113.10`, verify it appears in Windows Firewall, then remove it.

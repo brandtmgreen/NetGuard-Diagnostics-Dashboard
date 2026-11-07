@@ -30,6 +30,13 @@ export const api = {
   state: () => request<import("./types").AppState>("/api/state"),
   health: () => request<Record<string, unknown>>("/api/health"),
   diagnostics: () => request<import("./types").Diagnostics>("/api/diagnostics"),
+  audit: () => request<import("./types").SecurityAuditReport>("/api/security/audit"),
+  processes: () => request<{ processes: import("./types").ProcessInfo[] }>("/api/processes"),
+  killProcess: (pid: number, name: string) =>
+    request<{ ok: boolean; pid: number }>("/api/processes/kill", {
+      method: "POST",
+      body: JSON.stringify({ pid, name }),
+    }),
   settings: (patch: Partial<import("./types").Settings>) =>
     request<import("./types").Settings>("/api/settings", {
       method: "PUT",

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { AlertTriangle, Loader2, Radar, ScanLine } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, Loader2, Plus, Radar, ScanLine } from "lucide-react";
 import { api } from "../api";
 import { AppState, NmapResult } from "../types";
+import { addPlannerTask } from "../planner";
 
 interface Props {
   state: AppState;
@@ -14,17 +15,48 @@ export default function ScannerView({ state }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"ports" | "raw">("ports");
+  const [analysis, setAnalysis] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [notice, setNotice] = useState("");
 
   const scan = async () => {
     setBusy(true);
     setError(null);
     try {
       setResult(await api.scan(target.trim(), profile));
+      setAnalysis("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
+  };
+
+  const analyze = async () => {
+    if (!result) return;
+    setAiBusy(true);
+    setAnalysis("");
+    try {
+      const response = await api.ai(`Triage this authorized Nmap ${result.profile} scan for ${result.target}. Open ports: ${result.ports.filter(port => port.state === "open").map(port => `${port.port}/${port.protocol} ${port.service} ${port.version}`).join("; ") || "none"}. Summarize the top three risks and concrete remediation. Do not invent findings.`);
+      setAnalysis(response.text);
+    } catch (err) {
+      setAnalysis(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const planPort = (port: NmapResult["ports"][number]) => {
+    if (!result) return;
+    addPlannerTask({
+      title: `Remediate ${port.service || "service"} on port ${port.port}/${port.protocol}`,
+      description: `Nmap ${result.profile} scan of ${result.target} reported ${port.state} ${port.service || "unknown service"}${port.version ? ` (${port.version})` : ""}. Confirm exposure, restrict access, and patch or disable the service.`,
+      dueDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      priority: "High",
+      completed: false,
+      assignedNode: result.target,
+    });
+    setNotice(`Added remediation for port ${port.port} to the Action Planner.`);
   };
 
   return (
@@ -59,12 +91,13 @@ export default function ScannerView({ state }: Props) {
           <AlertTriangle className="w-3.5 h-3.5 text-[#e0af68]" />
           Scan only systems you own or are authorized to test. Public targets are blocked unless enabled in Settings.
         </div>
+        {notice ? <div className="mt-3 flex items-center gap-2 rounded-lg border border-[#9ece6a]/30 bg-[#9ece6a]/5 p-3 text-[10px] text-[#9ece6a]"><CheckCircle2 className="w-3.5 h-3.5" />{notice}</div> : null}
         {error ? <div className="mt-3 rounded-lg border border-[#f7768e]/30 bg-[#f7768e]/5 p-3 text-[10px] text-[#f7768e]">{error}</div> : null}
       </div>
 
       {result ? (
         <div className="rounded-xl border border-[#24283b] bg-[#161821] overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#24283b] flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-[#24283b] flex flex-col md:flex-row md:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Radar className="w-4 h-4 text-[#7dcfff]" />
               <div>
@@ -72,11 +105,13 @@ export default function ScannerView({ state }: Props) {
                 <div className="text-[9px] font-mono text-[#565f89]">{new Date(result.timestamp).toLocaleString()} · {result.status}</div>
               </div>
             </div>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               <button onClick={() => setTab("ports")} className={`px-2.5 py-1 rounded text-[9px] font-black uppercase ${tab === "ports" ? "bg-[#7dcfff]/10 text-[#7dcfff]" : "text-[#565f89]"}`}>Ports</button>
               <button onClick={() => setTab("raw")} className={`px-2.5 py-1 rounded text-[9px] font-black uppercase ${tab === "raw" ? "bg-[#7dcfff]/10 text-[#7dcfff]" : "text-[#565f89]"}`}>Raw</button>
+              {state.ai.configured ? <button onClick={() => void analyze()} disabled={aiBusy} className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-[9px] font-black uppercase text-[#bb9af7] disabled:opacity-40">{aiBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />} AI triage</button> : null}
             </div>
           </div>
+          {analysis ? <div className="border-b border-[#24283b] bg-[#bb9af7]/5 px-4 py-3 text-[10px] leading-relaxed text-[#a9b1d6]"><div className="mb-1 text-[8px] font-black uppercase tracking-widest text-[#bb9af7]">AI triage</div>{analysis}</div> : null}
           {tab === "ports" ? (
             <div className="max-h-[520px] overflow-auto">
               <table className="w-full text-left text-[10px]">
@@ -87,6 +122,7 @@ export default function ScannerView({ state }: Props) {
                     <th className="px-3 py-2 font-black">State</th>
                     <th className="px-3 py-2 font-black">Service</th>
                     <th className="px-3 py-2 font-black">Version</th>
+                    <th className="px-3 py-2 font-black" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#24283b]">
@@ -97,6 +133,9 @@ export default function ScannerView({ state }: Props) {
                       <td className="px-3 py-2"><span className={port.state === "open" ? "text-[#9ece6a]" : "text-[#e0af68]"}>{port.state}</span></td>
                       <td className="px-3 py-2 text-[#a9b1d6]">{port.service || "—"}</td>
                       <td className="px-3 py-2 text-[#737aa2]">{port.version || "—"}</td>
+                      <td className="px-3 py-2 text-right">
+                        {port.state === "open" ? <button onClick={() => planPort(port)} title="Add remediation to Action Planner" className="rounded p-1.5 text-[#565f89] hover:bg-[#9ece6a]/10 hover:text-[#9ece6a]"><Plus className="w-3.5 h-3.5" /></button> : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

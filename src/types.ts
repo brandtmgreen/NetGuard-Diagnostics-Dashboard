@@ -180,6 +180,58 @@ export interface Diagnostics {
   capture: CaptureStatus;
 }
 
+export type AuditStatus = "OK" | "SUGGESTION" | "WARNING" | "CRITICAL";
+
+export interface AuditCheck {
+  id: string;
+  category: "Kernel & Boot" | "Authentication & Access" | "Network & Firewall" | "Services & Exposure" | "Logging & Updates";
+  title: string;
+  status: AuditStatus;
+  currentValue: string;
+  expectedValue: string;
+  humanExplanation: string;
+  remediationCommand?: string;
+  riskImpact: "Low" | "Medium" | "High";
+}
+
+export interface SecurityAuditReport {
+  auditId: string;
+  timestamp: string;
+  hostname: string;
+  platform: string;
+  score: number;
+  totalChecks: number;
+  okCount: number;
+  suggestionCount: number;
+  warningCount: number;
+  criticalCount: number;
+  checks: AuditCheck[];
+}
+
+export interface ProcessInfo {
+  pid: number;
+  parentPid: number | null;
+  name: string;
+  cpuSeconds: number;
+  memoryMb: number;
+  threads: number;
+  status: string;
+  path: string;
+  commandLine: string;
+}
+
+export interface PlannerTask {
+  id: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  priority: "Low" | "Medium" | "High" | "Critical";
+  completed: boolean;
+  createdAt: string;
+  assignedNode?: string;
+  prerequisiteTaskId?: string;
+}
+
 export interface CaptureInterface {
   path: string;
   name: string;

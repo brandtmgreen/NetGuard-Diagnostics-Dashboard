@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+$version = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
 
 if (-not (Test-Path (Join-Path $RuntimePath "NetGuard.exe"))) {
   throw "Working Electron runtime not found at $RuntimePath. Pass -RuntimePath with a folder containing NetGuard.exe and resources."
@@ -29,7 +30,7 @@ Copy-Item (Join-Path $root "electron.cjs") $staging
 {
   "name": "netguard-security-desk",
   "productName": "NetGuard Security Desk",
-  "version": "1.0.4",
+  "version": "$version",
   "private": true,
   "main": "electron.cjs"
 }
@@ -55,7 +56,7 @@ if (Test-Path (Join-Path $app "react-example.exe")) {
 
 Write-Output "Portable build: $app"
 if ($Zip) {
-  $zipPath = Join-Path $release "NetGuard-1.0.4-win-x64.zip"
+  $zipPath = Join-Path $release "NetGuard-$version-win-x64.zip"
   Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
   Compress-Archive -Path (Join-Path $app "*") -DestinationPath $zipPath -CompressionLevel Optimal
   Write-Output "Portable zip: $zipPath"

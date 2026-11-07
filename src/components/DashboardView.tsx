@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Waypoints,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { AppState } from "../types";
 import { formatBytes, formatTime, formatUptime } from "../format";
 
@@ -54,10 +55,30 @@ function severityClass(severity: string): string {
 }
 
 export default function DashboardView({ state, onNavigate }: Props) {
+  const [history, setHistory] = useState<{ cpu: number[]; memory: number[] }>({ cpu: [state.host.cpuPercent], memory: [state.host.memoryPercent] });
   const openAlerts = state.alerts.filter((alert) => alert.status === "open");
   const established = state.connections.filter((connection) => connection.state === "ESTABLISHED");
   const listening = state.connections.filter((connection) => connection.state === "LISTENING");
   const scoreColor = state.securityScore >= 80 ? "#9ece6a" : state.securityScore >= 55 ? "#e0af68" : "#f7768e";
+
+  useEffect(() => {
+    setHistory(previous => ({
+      cpu: [...previous.cpu, state.host.cpuPercent].slice(-30),
+      memory: [...previous.memory, state.host.memoryPercent].slice(-30),
+    }));
+  }, [state.host.cpuPercent, state.host.memoryPercent]);
+
+  const spark = (values: number[], color: string) => {
+    const width = 220;
+    const height = 42;
+    const max = Math.max(100, ...values);
+    const points = values.map((value, index) => `${(index / Math.max(1, values.length - 1)) * width},${height - (value / max) * height}`).join(" ");
+    return (
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-10 w-full" preserveAspectRatio="none" aria-hidden="true">
+        <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
+      </svg>
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -152,6 +173,16 @@ export default function DashboardView({ state, onNavigate }: Props) {
                 <div className={`mt-1 text-xs font-mono ${state.ai.configured ? "text-[#9ece6a]" : "text-[#e0af68]"}`}>
                   {state.ai.configured ? "ready" : "not configured"}
                 </div>
+              </div>
+            </div>
+            <div className="border-t border-[#24283b] pt-3">
+              <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-[#565f89]">
+                <span>Resource trend</span>
+                <span className="flex items-center gap-2"><span className="text-[#7aa2f7]">CPU</span><span className="text-[#bb9af7]">MEM</span></span>
+              </div>
+              <div className="mt-1 space-y-1">
+                {spark(history.cpu, "#7aa2f7")}
+                {spark(history.memory, "#bb9af7")}
               </div>
             </div>
           </div>

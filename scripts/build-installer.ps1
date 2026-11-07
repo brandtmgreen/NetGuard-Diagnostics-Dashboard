@@ -13,4 +13,5 @@ if (-not (Test-Path (Join-Path $root "release\NetGuard\NetGuard.exe"))) {
 
 & $iscc.Source (Join-Path $root "installer\NetGuard.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE." }
-Write-Output "Installer written to release\NetGuard-Setup-1.0.4.exe"
+$version = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
+Write-Output "Installer written to release\NetGuard-Setup-$version.exe"

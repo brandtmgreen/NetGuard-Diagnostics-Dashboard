@@ -4,7 +4,7 @@
 ; The release folder must contain the portable NetGuard build.
 
 #define MyAppName "NetGuard Security Desk"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.0.6"
 #define MyAppPublisher "NetGuard"
 #define MyAppExeName "NetGuard.exe"
 

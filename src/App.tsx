@@ -11,15 +11,29 @@ import PreventionView from "./components/PreventionView";
 import CaptureView from "./components/CaptureView";
 import ReportsView from "./components/ReportsView";
 import SettingsView from "./components/SettingsView";
+import TaskManagerView from "./components/TaskManagerView";
+import ActionPlannerView from "./components/ActionPlannerView";
+import NetworkDiagnosticsView from "./components/NetworkDiagnosticsView";
+import SecurityCenterView from "./components/SecurityCenterView";
+import TerminalView from "./components/TerminalView";
+import DeploymentWizardView from "./components/DeploymentWizardView";
+import SystemAuditView from "./components/SystemAuditView";
 
 const titles: Record<string, { eyebrow: string; title: string }> = {
   dashboard: { eyebrow: "Operations", title: "Security overview" },
+  tasks: { eyebrow: "Operations", title: "Task manager" },
+  planner: { eyebrow: "Operations", title: "Action planner" },
   network: { eyebrow: "Telemetry", title: "Network surface" },
+  diagnostics: { eyebrow: "Telemetry", title: "Network diagnostics" },
   scanner: { eyebrow: "Assessment", title: "Authorized port scanner" },
+  security: { eyebrow: "Security", title: "Security center" },
+  audit: { eyebrow: "Compliance", title: "System audit" },
   detections: { eyebrow: "Detection", title: "Intrusion detections" },
   prevention: { eyebrow: "Enforcement", title: "Prevention controls" },
   capture: { eyebrow: "Evidence", title: "Packet capture" },
+  terminal: { eyebrow: "Operations", title: "Diagnostics terminal" },
   reports: { eyebrow: "Evidence", title: "Incident reports" },
+  wizard: { eyebrow: "Setup", title: "Deployment wizard" },
   settings: { eyebrow: "Configuration", title: "Settings" },
 };
 
@@ -161,8 +175,13 @@ export default function App() {
             </div>
           ) : null}
           {activeTab === "dashboard" ? <DashboardView state={state} onNavigate={setActiveTab} /> : null}
+          {activeTab === "tasks" ? <TaskManagerView state={state} /> : null}
+          {activeTab === "planner" ? <ActionPlannerView /> : null}
           {activeTab === "network" ? <NetworkView state={state} /> : null}
+          {activeTab === "diagnostics" ? <NetworkDiagnosticsView state={state} /> : null}
           {activeTab === "scanner" ? <ScannerView state={state} /> : null}
+          {activeTab === "security" ? <SecurityCenterView state={state} onNavigate={setActiveTab} onRefresh={() => void refresh()} /> : null}
+          {activeTab === "audit" ? <SystemAuditView state={state} /> : null}
           {activeTab === "detections" ? (
             <DetectionsView
               state={state}
@@ -179,8 +198,10 @@ export default function App() {
               onUnblock={(name) => action(() => api.unblock(name), "Firewall rule removed.")}
             />
           ) : null}
-          {activeTab === "capture" ? <CaptureView state={state} onRefresh={() => void refresh()} /> : null}
+          {activeTab === "capture" ? <CaptureView state={state} onRefresh={() => void refresh()} onBlock={(ip, label) => setBlockTarget({ ip, label })} /> : null}
+          {activeTab === "terminal" ? <TerminalView /> : null}
           {activeTab === "reports" ? <ReportsView state={state} /> : null}
+          {activeTab === "wizard" ? <DeploymentWizardView state={state} onNavigate={setActiveTab} /> : null}
           {activeTab === "settings" ? <SettingsView state={state} onSaveSettings={saveSettings} /> : null}
         </div>
       </main>

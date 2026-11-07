@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CircleStop, Play, Radio, RefreshCw, Waypoints } from "lucide-react";
+import { Bot, CircleStop, Loader2, Play, Radio, RefreshCw, Search, ShieldBan, Waypoints } from "lucide-react";
 import { api } from "../api";
 import { AppState, CaptureInterface, Packet } from "../types";
 import { formatTime } from "../format";
@@ -7,14 +7,18 @@ import { formatTime } from "../format";
 interface Props {
   state: AppState;
   onRefresh: () => void;
+  onBlock: (ip: string, label: string) => void;
 }
 
-export default function CaptureView({ state, onRefresh }: Props) {
+export default function CaptureView({ state, onRefresh, onBlock }: Props) {
   const [interfaces, setInterfaces] = useState<CaptureInterface[]>([]);
   const [selected, setSelected] = useState(state.settings.captureInterface || "");
   const [filter, setFilter] = useState(state.settings.captureFilter || "not port 3000");
   const [packets, setPackets] = useState<Packet[]>([]);
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null);
+  const [query, setQuery] = useState("");
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,8 +85,29 @@ export default function CaptureView({ state, onRefresh }: Props) {
     }
   };
 
-  const displayed = useMemo(() => packets.slice().reverse().slice(0, 250), [packets]);
+  const displayed = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return packets
+      .slice()
+      .reverse()
+      .filter(packet => !term || [packet.source, packet.destination, packet.protocol, packet.info, String(packet.srcPort || ""), String(packet.dstPort || "")].join(" ").toLowerCase().includes(term))
+      .slice(0, 250);
+  }, [packets, query]);
   const currentInterface = interfaces.find((item) => item.path === state.capture.interfacePath);
+
+  const analyze = async () => {
+    if (!selectedPacket) return;
+    setAiBusy(true);
+    setAiText("");
+    try {
+      const response = await api.ai(`Analyze this captured packet for security risk. Source ${selectedPacket.source}:${selectedPacket.srcPort ?? "?"} to ${selectedPacket.destination}:${selectedPacket.dstPort ?? "?"}, protocol ${selectedPacket.protocol}, length ${selectedPacket.length}, info: ${selectedPacket.info}. Be concise and do not invent data.`);
+      setAiText(response.text);
+    } catch (err) {
+      setAiText(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -152,12 +177,18 @@ export default function CaptureView({ state, onRefresh }: Props) {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-4">
         <div className="rounded-xl border border-[#24283b] bg-[#161821] overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#24283b] flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-[#24283b] flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
             <div className="flex items-center gap-2">
               <Radio className={`w-3.5 h-3.5 ${state.capture.running ? "text-[#9ece6a]" : "text-[#565f89]"}`} />
               <h2 className="text-xs font-black text-[#c0caf5]">Packet stream</h2>
             </div>
-            <span className="text-[9px] font-mono text-[#565f89]">{displayed.length} shown</span>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#565f89]" />
+                <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter IP, port, protocol or info" className="w-56 rounded border border-[#24283b] bg-[#11131b] py-1.5 pl-7 pr-2 text-[9px] font-mono text-[#c0caf5] outline-none focus:border-[#7dcfff]/50" />
+              </div>
+              <span className="text-[9px] font-mono text-[#565f89]">{displayed.length} shown</span>
+            </div>
           </div>
           <div className="max-h-[560px] overflow-auto">
             <table className="w-full text-left text-[10px]">
@@ -213,6 +244,11 @@ export default function CaptureView({ state, onRefresh }: Props) {
                 <div className="text-[#565f89] uppercase tracking-wide mb-1">Info</div>
                 <p className="text-[#a9b1d6] leading-relaxed font-mono">{selectedPacket.info || "—"}</p>
               </div>
+              <div className="flex flex-wrap gap-2 pt-3">
+                <button onClick={() => onBlock(selectedPacket.source, `Captured ${selectedPacket.protocol} packet from ${selectedPacket.source} to ${selectedPacket.destination}`)} disabled={!state.host.isAdmin || !selectedPacket.source} className="inline-flex items-center gap-1.5 rounded-lg border border-[#f7768e]/30 bg-[#f7768e]/10 px-2.5 py-2 text-[9px] font-black uppercase tracking-wider text-[#f7768e] disabled:opacity-40"><ShieldBan className="w-3 h-3" /> Block source</button>
+                {state.ai.configured ? <button onClick={() => void analyze()} disabled={aiBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-[#7aa2f7]/30 bg-[#7aa2f7]/10 px-2.5 py-2 text-[9px] font-black uppercase tracking-wider text-[#7aa2f7] disabled:opacity-40">{aiBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />} AI analyze</button> : null}
+              </div>
+              {aiText ? <div className="mt-3 rounded-lg border border-[#7aa2f7]/20 bg-[#7aa2f7]/5 p-3 text-[10px] leading-relaxed text-[#a9b1d6]">{aiText}</div> : null}
             </div>
           ) : (
             <p className="mt-4 text-[10px] text-[#565f89]">Select a packet to inspect its metadata.</p>

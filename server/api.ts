@@ -12,6 +12,8 @@ import { Telemetry } from "./telemetry.js";
 import { Settings, WindowsEventInfo } from "./types.js";
 import { isValidIpOrHostname, nowIso, sanitizeText } from "./util.js";
 import { getLogInfo, getRecentLogs, logger } from "./logger.js";
+import { assertProcessCanBeStopped, listProcesses } from "./processes.js";
+import { runSecurityAudit } from "./audit.js";
 
 export interface ApiContext {
   store: Store;
@@ -198,7 +200,7 @@ export function createApi(context: ApiContext): Router {
   router.get("/health", (_req, res) => {
     res.json({
       ok: true,
-      version: "1.0.5",
+      version: "1.0.6",
       admin: telemetry.getHost().isAdmin,
       capture: capture.getStatus(),
       nmap: Boolean(findNmap()),
@@ -211,7 +213,7 @@ export function createApi(context: ApiContext): Router {
   router.get("/diagnostics", (_req, res) => {
     const memory = process.memoryUsage();
     res.json({
-      version: "1.0.5",
+      version: "1.0.6",
       uptimeSeconds: Math.round(process.uptime()),
       node: process.version,
       platform: `${os.platform()} ${os.release()}`,
@@ -226,6 +228,36 @@ export function createApi(context: ApiContext): Router {
       admin: telemetry.getHost().isAdmin,
       capture: capture.getStatus(),
     });
+  });
+
+  router.get("/security/audit", async (_req, res, next) => {
+    try {
+      res.json(await runSecurityAudit());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get("/processes", async (_req, res, next) => {
+    try {
+      res.json({ processes: await listProcesses() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post("/processes/kill", async (req, res, next) => {
+    try {
+      if (!telemetry.getHost().isAdmin) return res.status(403).json({ error: "Administrator privileges are required." });
+      const pid = Number(req.body?.pid);
+      const name = String(req.body?.name || "");
+      assertProcessCanBeStopped(pid, name);
+      process.kill(pid);
+      store.audit("process.kill", { pid, name });
+      res.json({ ok: true, pid });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get("/state", async (_req, res, next) => {
@@ -435,7 +467,7 @@ export function apiErrorHandler(error: unknown, req: Request, res: Response, _ne
     ? 403
     : /not found/i.test(message)
       ? 404
-    : /invalid|required|refusing|disabled|not allowed/i.test(message)
+    : /invalid|required|refusing|disabled|not allowed|protected/i.test(message)
         ? 400
         : 500;
   logger.error("api.error", {
