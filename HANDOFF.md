@@ -1,9 +1,9 @@
 # NetGuard — Handoff / Resume Point
 
-**Status:** PAUSED by Mr. Green on 2026-10-25 to work on the website. Do not resume unless asked.
+**Status:** Restored demo feature set shipped in 1.0.6 on 2026-11-07.
 **Project:** `C:\Users\no\.openclaw-autoclaw\workspace\NetGuard`
 **Branch:** `real-ids`
-**Latest commits:** `b3f831b`, `cff4c23`, `7f67c28`
+**Latest commits:** `ca97e9d`, `443a34d`, tag `v1.0.6`
 
 ## What is built
 - Real Windows telemetry: interfaces, gateway, CPU/memory, uptime, ARP neighbors, TCP connections.
@@ -12,7 +12,7 @@
 - Real Windows Firewall enforcement with monitor/prevent modes, explicit arming, guardrails, expiry, and audit logging.
 - Real Nmap scanning; public targets blocked by default.
 - Gemini AI is optional and advisory only; no key = explicit unavailable, no fake answers.
-- React UI with Dashboard, Network, Port Scanner, Detections, Prevention, Packet Capture, Reports, Settings.
+- React UI with Dashboard, Task Manager, Action Planner, Network, Diagnostics, Port Scanner, Security Center, System Audit, Detections, Prevention, Packet Capture, Terminal, Reports, Deployment Wizard, Settings.
 - Electron tray/background mode, per-launch local API token, logon-startup scripts, portable packaging, Inno Setup script.
 
 ## Verified
@@ -72,3 +72,19 @@ Remaining commercial gaps are unchanged: signed installer/update pipeline, true 
 - Previous installation backed up at `C:\Users\no\.openclaw-autoclaw\workspace\.cluster\NetGuard-install-backup-20261106-0146`.
 - Verified installed `NetGuard.exe` launches and `/api/health` returns **version 1.0.5**.
 - User data under `%LOCALAPPDATA%\NetGuard\data` was not touched.
+
+## 2026-11-07 - Demo operator features restored in 1.0.6
+
+- Restored the demo-class operator surfaces on top of the real collectors:
+  - Task Manager process tree/table with parent PIDs, command lines, path, memory, CPU time and guarded termination.
+  - Action Planner search, priority/status filters, assigned nodes, prerequisite dependencies, edit/delete and blocked-completion rules.
+  - Network Diagnostics ARP/gateway topology map with selectable nodes and live ping.
+  - System Audit: read-only Defender, firewall, UAC, SMBv1, RDP, Secure Boot, PowerShell policy, admin membership and patch checks.
+  - Port Scanner AI triage and remediation handoff to the planner.
+  - Packet Capture client-side filters, block-source and AI packet analysis.
+  - Security Center host checks, firewall policy list and source heat map.
+  - Dashboard resource trend and collapsible sidebar.
+- New backend pieces: `server/processes.ts` (real process table/kill guard), `server/audit.ts` and `GET /api/security/audit`.
+- Version bumped to **1.0.6**. Portable package and installed copy replaced; no user data under `%LOCALAPPDATA%\NetGuard\data` was modified.
+- GitHub: pushed `main` and tag `v1.0.6` to `brandtmgreen/NetGuard-Diagnostics-Dashboard`.
+- Verified: typecheck/build pass; all 15 views load with 0 console errors and 0 failed requests; process tree 376 rows; planner add/block/edit/delete; topology/ping; Nmap local scan (4 open ports); capture start/stop; audit score 83 with 9 real checks; installed app shows `v1.0.6`.
